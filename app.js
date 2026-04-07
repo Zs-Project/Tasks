@@ -172,7 +172,11 @@ function loadUiState() {
   };
   try {
     const parsed = JSON.parse(localStorage.getItem(UI_KEY) || "null");
-    return { ...defaults, ...(parsed || {}) };
+    return {
+      ...defaults,
+      ...(parsed || {}),
+      selectedDate: normalizeIsoDateInput(parsed && parsed.selectedDate) || defaults.selectedDate,
+    };
   } catch {
     return defaults;
   }
@@ -365,7 +369,7 @@ function bindEvents() {
   });
 
   selectedDateInput.addEventListener("change", () => {
-    state.selectedDate = selectedDateInput.value || todayIso();
+    state.selectedDate = normalizeIsoDateInput(selectedDateInput.value) || todayIso();
     syncComposerNote();
     syncDateInputs();
     saveUiState();
@@ -373,7 +377,7 @@ function bindEvents() {
   });
 
   planDateInput.addEventListener("change", () => {
-    state.selectedDate = planDateInput.value || todayIso();
+    state.selectedDate = normalizeIsoDateInput(planDateInput.value) || todayIso();
     syncDateInputs();
     saveUiState();
     render();
@@ -398,7 +402,7 @@ function bindEvents() {
           title: String(formData.get("title") || "").trim(),
           details: String(formData.get("details") || "").trim(),
           subtasks: currentTaskSubtasks(editingId),
-          dueDate: String(formData.get("dueDate") || "").trim() || null,
+          dueDate: normalizeIsoDateInput(String(formData.get("dueDate") || "").trim()) || null,
           lane: requestedLane,
           priority: String(formData.get("priority") || "medium"),
           done: editingId ? currentTaskDone(editingId) : false,
@@ -461,7 +465,7 @@ function bindEvents() {
       const payload = await api(editingId ? `/plans/${editingId}` : "/plans", {
         method: editingId ? "PUT" : "POST",
         body: {
-          planDate: planDateInput.value || state.selectedDate,
+          planDate: normalizeIsoDateInput(planDateInput.value || state.selectedDate) || state.selectedDate,
           timeLabel: String(formData.get("timeLabel") || "").trim(),
           title: String(formData.get("title") || "").trim(),
           details: String(formData.get("details") || "").trim(),
@@ -589,7 +593,7 @@ function bindEvents() {
     updateDetailDraft({ priority: detailPriorityInput.value });
   });
   detailDueDateInput.addEventListener("change", () => {
-    updateDetailDraft({ dueDate: detailDueDateInput.value || null });
+    updateDetailDraft({ dueDate: normalizeIsoDateInput(detailDueDateInput.value) || null });
   });
   addDetailSubtaskButton.addEventListener("click", addDetailSubtask);
   toggleCompletedSubtasksButton.addEventListener("click", () => {
@@ -2154,6 +2158,25 @@ function relativeTime(timestamp) {
 
 function todayIso() {
   return dateToLocalIso(new Date());
+}
+
+function normalizeIsoDateInput(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+  const slashMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (slashMatch) {
+    const iso = `${slashMatch[3]}-${slashMatch[2]}-${slashMatch[1]}`;
+    const parsed = new Date(`${iso}T00:00:00`);
+    if (!Number.isNaN(parsed.getTime()) && dateToLocalIso(parsed) === iso) {
+      return iso;
+    }
+  }
+  return raw;
 }
 
 function dateToLocalIso(date) {

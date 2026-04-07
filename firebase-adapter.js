@@ -115,12 +115,28 @@
     return String(value || "").trim().toLowerCase();
   }
 
+  function normalizeDateInput(value) {
+    const raw = String(value || "").trim();
+    if (!raw) {
+      return "";
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      return raw;
+    }
+    const slashMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (slashMatch) {
+      return `${slashMatch[3]}-${slashMatch[2]}-${slashMatch[1]}`;
+    }
+    return raw;
+  }
+
   function isValidDate(value) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const normalized = normalizeDateInput(value);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
       return false;
     }
-    const parsed = new Date(`${value}T00:00:00`);
-    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+    const parsed = new Date(`${normalized}T00:00:00`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === normalized;
   }
 
   function isValidTime(value) {
@@ -394,6 +410,7 @@
 
   async function handleUpsertNote(client, noteDate, options) {
     const body = requireBody(options);
+    noteDate = normalizeDateInput(noteDate);
     if (!isValidDate(noteDate)) {
       throw createError("Date is invalid.", 400);
     }
@@ -413,7 +430,7 @@
 
   async function handleCreatePlan(client, options) {
     const body = requireBody(options);
-    const planDate = String(body.planDate || "").trim();
+    const planDate = normalizeDateInput(body.planDate);
     const timeLabel = String(body.timeLabel || "").trim();
     const title = String(body.title || "").trim();
     const details = String(body.details || "").trim();
@@ -444,7 +461,7 @@
 
   async function handleUpdatePlan(client, planId, options) {
     const body = requireBody(options);
-    const planDate = String(body.planDate || "").trim();
+    const planDate = normalizeDateInput(body.planDate);
     const timeLabel = String(body.timeLabel || "").trim();
     const title = String(body.title || "").trim();
     const details = String(body.details || "").trim();
@@ -487,7 +504,7 @@
     const body = requireBody(options);
     const title = String(body.title || "").trim();
     const details = String(body.details || "").trim();
-    const dueDate = body.dueDate == null ? null : String(body.dueDate).trim() || null;
+    const dueDate = body.dueDate == null ? null : normalizeDateInput(body.dueDate) || null;
     const lane = String(body.lane || "ideas").trim().toLowerCase() || "ideas";
     const priority = String(body.priority || "medium").trim().toLowerCase();
     const done = Boolean(body.done);
@@ -530,7 +547,7 @@
     const body = requireBody(options);
     const title = String(body.title || "").trim();
     const details = String(body.details || "").trim();
-    const dueDate = body.dueDate == null ? null : String(body.dueDate).trim() || null;
+    const dueDate = body.dueDate == null ? null : normalizeDateInput(body.dueDate) || null;
     const lane = String(body.lane || "ideas").trim().toLowerCase() || "ideas";
     const priority = String(body.priority || "medium").trim().toLowerCase();
     const done = Boolean(body.done);
