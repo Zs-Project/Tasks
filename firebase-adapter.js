@@ -135,8 +135,20 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
       return false;
     }
-    const parsed = new Date(`${normalized}T00:00:00`);
-    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === normalized;
+    const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
+      return false;
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(year, month - 1, day);
+    return (
+      !Number.isNaN(parsed.getTime()) &&
+      parsed.getFullYear() === year &&
+      parsed.getMonth() === month - 1 &&
+      parsed.getDate() === day
+    );
   }
 
   function isValidTime(value) {
