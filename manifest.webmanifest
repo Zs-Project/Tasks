@@ -1,0 +1,24 @@
+{
+  "name": "Planboard",
+  "short_name": "Planboard",
+  "description": "A lightweight planner app with month calendar, daily notes, and todo tracking.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f1e8",
+  "theme_color": "#f15a29",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icons/icon-any.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

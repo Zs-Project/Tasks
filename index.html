@@ -1,0 +1,458 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#22262b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Planboard">
+  <title>Planboard Sync</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-any.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-any.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <p class="eyebrow">Planboard Sync</p>
+      <h1>Fast, focused planning that stays in sync.</h1>
+      <p class="auth-copy">
+        Use the same board on Windows and iPhone with a Reminders-style layout:
+        columns, drag-and-drop, and synced data on one account.
+      </p>
+
+      <div class="auth-switcher">
+        <button id="showLoginButton" class="chip is-active" type="button">Sign In</button>
+        <button id="showRegisterButton" class="chip" type="button">Create Account</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <label class="field">
+          <span>Email</span>
+          <input name="email" type="email" placeholder="you@example.com" autocomplete="email" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+        </label>
+        <button class="button button--primary" type="submit">Sign In</button>
+      </form>
+
+      <form id="registerForm" class="auth-form auth-form--hidden">
+        <label class="field">
+          <span>Display Name</span>
+          <input name="name" type="text" placeholder="Your name" maxlength="48" autocomplete="name" required>
+        </label>
+        <label class="field">
+          <span>Email</span>
+          <input name="email" type="email" placeholder="you@example.com" autocomplete="email" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input name="password" type="password" placeholder="At least 8 characters" minlength="8" autocomplete="new-password" required>
+        </label>
+        <button class="button button--primary" type="submit">Create Account</button>
+      </form>
+
+      <p id="authMessage" class="message" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <div id="appShell" class="window-shell app-hidden">
+    <aside class="sidebar">
+      <div class="window-dots" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+
+      <button class="active-list" type="button">
+        <span class="active-list__icon">&#9716;</span>
+        <span class="active-list__body">
+          <strong>Tasks</strong>
+          <span>Main board</span>
+        </span>
+        <span id="allTaskCountBadge" class="active-list__count">0</span>
+      </button>
+
+      <section class="sidebar-group">
+        <p class="sidebar-group__title">My Lists</p>
+        <div class="sidebar-list-item">
+          <span class="sidebar-list-item__dot sidebar-list-item__dot--blue"></span>
+          <span class="sidebar-list-item__label">Task list</span>
+          <span id="openTaskCount" class="sidebar-list-item__count">0</span>
+        </div>
+        <div class="sidebar-list-item">
+          <span class="sidebar-list-item__dot sidebar-list-item__dot--gray"></span>
+          <span class="sidebar-list-item__label">Daily notes</span>
+          <span id="noteCount" class="sidebar-list-item__count">0</span>
+        </div>
+        <div class="sidebar-list-item">
+          <span class="sidebar-list-item__dot sidebar-list-item__dot--yellow"></span>
+          <span class="sidebar-list-item__label">Today plans</span>
+          <span id="planCount" class="sidebar-list-item__count">0</span>
+        </div>
+      </section>
+
+      <section class="sidebar-panel sidebar-panel--controls">
+        <p class="sidebar-panel__title">Board tools</p>
+
+        <div class="filter-chips filter-chips--sidebar" role="tablist" aria-label="Task filters">
+          <button id="filterAllButton" class="chip is-active" type="button">All</button>
+          <button id="filterTodayButton" class="chip" type="button">Today</button>
+          <button id="filterOverdueButton" class="chip" type="button">Overdue</button>
+          <button id="filterHighButton" class="chip" type="button">High Priority</button>
+        </div>
+
+        <form id="quickAddForm" class="quick-add quick-add--sidebar" autocomplete="off">
+          <input id="quickAddInput" type="text" maxlength="80" placeholder="Quick add a task">
+          <div class="quick-add__row">
+            <select id="quickAddLaneInput" aria-label="Quick add lane">
+              <option value="ideas">Ideas</option>
+              <option value="month">This Month</option>
+              <option value="week">This Week</option>
+              <option value="today">Today</option>
+            </select>
+            <button class="toolbar-button toolbar-button--primary" type="submit">Add</button>
+          </div>
+        </form>
+
+        <label class="sort-control sort-control--sidebar">
+          <span>Sort</span>
+          <select id="sortSelect">
+            <option value="manual">Default</option>
+            <option value="due">Due Soon</option>
+            <option value="priority">Priority</option>
+            <option value="newest">Newest</option>
+          </select>
+        </label>
+
+        <button id="themeToggleButton" class="toolbar-button toolbar-button--sidebar" type="button">Light Mode</button>
+        <button id="notificationButton" class="toolbar-button toolbar-button--sidebar" type="button">Enable Alerts</button>
+
+        <p id="filterStateLabel" class="board-filter-state board-filter-state--sidebar" aria-live="polite"></p>
+      </section>
+
+      <aside id="taskDetailPanel" class="task-detail task-detail--hidden" aria-hidden="true">
+        <div class="task-detail__header">
+          <div>
+            <p class="eyebrow">Task</p>
+            <h2 id="detailHeading">Task details</h2>
+            <p id="detailSaveState" class="task-detail__save-state">Pick a task to inspect and edit inline.</p>
+          </div>
+          <button id="closeTaskDetailButton" class="tool-icon" type="button" aria-label="Close task details">&times;</button>
+        </div>
+
+        <div id="taskDetailEmpty" class="task-detail__empty">
+          <p>Select a task to edit it inline, manage subtasks, and move it without opening another modal.</p>
+        </div>
+
+        <form id="taskDetailForm" class="task-detail__form task-detail__form--hidden">
+          <input id="detailTaskId" type="hidden">
+
+          <label class="field">
+            <span>Title</span>
+            <input id="detailTitleInput" type="text" maxlength="80" placeholder="Task title">
+          </label>
+
+          <label class="field">
+            <span>Details</span>
+            <textarea id="detailDetailsInput" rows="4" maxlength="400" placeholder="Short description"></textarea>
+          </label>
+
+          <div class="composer-grid">
+            <label class="field">
+              <span>Lane</span>
+              <select id="detailLaneInput">
+                <option value="ideas">Ideas</option>
+                <option value="month">This Month</option>
+                <option value="week">This Week</option>
+                <option value="today">Today</option>
+                <option value="done">Completed</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Priority</span>
+              <select id="detailPriorityInput">
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Deadline</span>
+            <input id="detailDueDateInput" type="date">
+          </label>
+
+          <section class="task-detail__section">
+            <div class="task-detail__section-header">
+              <h3>Checklist</h3>
+              <div class="task-detail__section-tools">
+                <span id="detailSubtaskMeta" class="task-detail__section-meta">0 items</span>
+                <button id="toggleCompletedSubtasksButton" class="plain-link task-detail__toggle-completed" type="button" hidden>Show completed</button>
+              </div>
+            </div>
+            <ul id="detailSubtaskList" class="subtask-list"></ul>
+            <div class="subtask-composer">
+              <input id="detailSubtaskInput" type="text" maxlength="120" placeholder="Add a subtask">
+              <button id="addDetailSubtaskButton" class="button" type="button">Add</button>
+            </div>
+          </section>
+
+          <div class="task-detail__actions">
+            <button id="toggleTaskDoneButton" class="toolbar-button" type="button">Mark Done</button>
+            <button id="deleteTaskButton" class="toolbar-button" type="button">Delete</button>
+          </div>
+        </form>
+      </aside>
+
+      <section class="sidebar-meta">
+        <div class="sidebar-profile">
+          <div id="avatarBadge" class="avatar-badge">PB</div>
+          <div class="sidebar-profile__copy">
+            <p id="workspaceNameLabel" class="sidebar-meta__workspace">Planboard</p>
+            <p id="userNameLabel" class="sidebar-meta__user">-</p>
+          </div>
+        </div>
+        <p id="selectedDateLabel" class="sidebar-meta__date">-</p>
+        <p id="selectedDateMeta" class="sidebar-meta__detail">0 plans / 0 tasks</p>
+      </section>
+
+      <div class="sidebar-footer">
+        <button id="todayButton" class="plain-link" type="button">Today</button>
+        <button id="refreshButton" class="plain-link" type="button">Refresh</button>
+        <button id="logoutButton" class="plain-link" type="button">Log out</button>
+      </div>
+    </aside>
+
+    <main class="board">
+      <header class="board-header">
+        <div class="board-header__copy">
+          <h1>Tasks</h1>
+          <p class="board-header__meta">
+            <span id="completedMeta">0 completed</span>
+            <button id="clearCompletedButton" class="clear-link" type="button">Clear</button>
+          </p>
+        </div>
+
+        <div class="board-header__tools">
+          <button id="installButton" class="tool-icon" type="button" hidden aria-label="Install">&#10515;</button>
+          <button id="openComposerButton" class="toolbar-button toolbar-button--primary" type="button">+ Add</button>
+          <div class="board-total">
+            <strong id="allTaskCountHeader">0</strong>
+            <span id="syncStatusLabel">Visible</span>
+            <span id="syncTimeLabel">Waiting for first sync</span>
+          </div>
+        </div>
+      </header>
+
+      <p id="statusMessage" class="message message--inline" aria-live="polite"></p>
+
+      <section class="columns">
+        <article class="column" data-lane="ideas">
+          <div class="column__header">
+            <h2>Ideas</h2>
+            <span id="count-ideas" class="column__count">0</span>
+          </div>
+          <div id="lane-ideas" class="column__body"></div>
+        </article>
+
+        <article class="column" data-lane="month">
+          <div class="column__header">
+            <h2>This Month</h2>
+            <span id="count-month" class="column__count">0</span>
+          </div>
+          <div id="lane-month" class="column__body"></div>
+        </article>
+
+        <article class="column" data-lane="week">
+          <div class="column__header">
+            <h2>This Week</h2>
+            <span id="count-week" class="column__count">0</span>
+          </div>
+          <div id="lane-week" class="column__body"></div>
+        </article>
+
+        <article class="column" data-lane="today">
+          <div class="column__header">
+            <h2>Today</h2>
+            <span id="count-today" class="column__count">0</span>
+          </div>
+          <div id="lane-today" class="column__body"></div>
+        </article>
+
+        <article class="column" data-lane="done">
+          <div class="column__header">
+            <h2>Completed</h2>
+            <span id="count-done" class="column__count">0</span>
+          </div>
+          <div id="lane-done" class="column__body"></div>
+        </article>
+      </section>
+    </main>
+
+    <nav class="mobile-tabbar" aria-label="Mobile sections">
+      <button class="mobile-tabbar__button" type="button" data-mobile-view="today">Today</button>
+      <button class="mobile-tabbar__button" type="button" data-mobile-view="ideas">Ideas</button>
+      <button class="mobile-tabbar__button" type="button" data-mobile-view="week">Week</button>
+      <button class="mobile-tabbar__button" type="button" data-mobile-view="month">Month</button>
+      <button class="mobile-tabbar__button" type="button" data-mobile-view="done">Done</button>
+      <button class="mobile-tabbar__button" type="button" data-mobile-view="boardtools">Tools</button>
+    </nav>
+  </div>
+
+  <div id="taskActionOverlay" class="task-action-overlay task-action-overlay--hidden" aria-hidden="true">
+    <div class="task-action-sheet">
+      <div class="task-action-sheet__header">
+        <div>
+          <p class="eyebrow">Task options</p>
+          <h2 id="taskActionTitle">Selected task</h2>
+        </div>
+        <button id="closeTaskActionButton" class="tool-icon" type="button" aria-label="Close task actions">&times;</button>
+      </div>
+      <div class="task-action-sheet__body">
+        <button id="taskActionEditButton" class="toolbar-button toolbar-button--sidebar" type="button">Edit details</button>
+        <div id="taskActionMoveList" class="task-action-move-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="undoToast" class="undo-toast undo-toast--hidden" aria-live="polite">
+    <span id="undoToastLabel">Action completed</span>
+    <button id="undoToastButton" class="plain-link" type="button">Undo</button>
+  </div>
+
+  <div id="composerOverlay" class="composer-overlay composer-overlay--hidden">
+    <div class="composer-sheet">
+      <div class="composer-sheet__header">
+        <div>
+          <p class="eyebrow">Quick Add</p>
+          <h2 id="composerTitle">Add Item</h2>
+          <p id="composerHint" class="composer-hint">Choose what you want to add for the current date.</p>
+        </div>
+        <button id="closeComposerButton" class="tool-icon" type="button" aria-label="Close">&times;</button>
+      </div>
+
+      <div class="composer-tabs">
+        <button id="tabTaskButton" class="chip is-active" type="button">Task</button>
+        <button id="tabNoteButton" class="chip" type="button">Note</button>
+        <button id="tabPlanButton" class="chip" type="button">Plan</button>
+      </div>
+
+      <form id="taskComposerForm" class="composer-form">
+        <input id="taskEditorId" type="hidden">
+        <label class="field">
+          <span>Task title</span>
+          <input id="todoTitleInput" name="title" type="text" maxlength="80" placeholder="Enter task title" required>
+        </label>
+        <label class="field">
+          <span>Details</span>
+          <input id="todoDetailsInput" name="details" type="text" maxlength="180" placeholder="Short description">
+        </label>
+        <div class="composer-grid">
+          <label class="field">
+            <span>Starting lane</span>
+            <select id="todoLaneInput" name="lane">
+              <option value="ideas">Ideas</option>
+              <option value="month">This Month</option>
+              <option value="week">This Week</option>
+              <option value="today">Today</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Priority</span>
+            <select id="todoPriorityInput" name="priority">
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="low">Low</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Deadline (optional)</span>
+          <input id="todoDueDateInput" name="dueDate" type="date">
+        </label>
+        <button id="taskSubmitButton" class="button button--primary" type="submit">Add Task</button>
+      </form>
+
+      <form id="noteComposerForm" class="composer-form composer-form--hidden">
+        <label class="field">
+          <span>Date</span>
+          <input id="selectedDateInput" type="date">
+        </label>
+        <label class="field">
+          <span>Daily note</span>
+          <textarea id="dailyNoteInput" rows="8" placeholder="Write a note for the selected day..."></textarea>
+        </label>
+        <p id="notePreviewText" class="composer-note-preview">No note for this day yet.</p>
+        <button id="saveNoteButton" class="button button--primary" type="button">Save Note</button>
+      </form>
+
+      <form id="planComposerForm" class="composer-form composer-form--hidden">
+        <input id="planEditorId" type="hidden">
+        <label class="field">
+          <span>Date</span>
+          <input id="planDateInput" type="date">
+        </label>
+        <div class="composer-grid">
+          <label class="field">
+            <span>Time</span>
+            <input id="planTimeInput" name="timeLabel" type="time">
+          </label>
+          <label class="field">
+            <span>Title</span>
+            <input id="planTitleInput" name="title" type="text" maxlength="80" placeholder="Plan title" required>
+          </label>
+        </div>
+        <label class="field">
+          <span>Details</span>
+          <input id="planDetailsInput" name="details" type="text" maxlength="180" placeholder="Short description">
+        </label>
+        <button id="planSubmitButton" class="button button--primary" type="submit">Add Plan</button>
+        <ul id="planList" class="plan-list" aria-live="polite"></ul>
+      </form>
+    </div>
+  </div>
+
+  <template id="todoCardTemplate">
+    <article class="task-card" draggable="true">
+      <label class="task-card__check">
+        <input class="task-card__toggle" type="checkbox">
+        <span class="task-card__dot"></span>
+      </label>
+      <div class="task-card__body task-card__body-button" role="button" tabindex="0">
+        <strong class="task-card__title"></strong>
+        <p class="task-card__details"></p>
+        <div class="task-card__meta">
+          <span class="task-card__due"></span>
+          <span class="task-card__priority"></span>
+          <span class="task-card__subtasks"></span>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <template id="planItemTemplate">
+    <li class="plan-item">
+      <span class="plan-item__time"></span>
+      <div class="plan-item__body">
+        <strong class="plan-item__title"></strong>
+        <p class="plan-item__details"></p>
+        <div class="plan-item__actions">
+          <button class="plan-item__edit" type="button">Edit</button>
+          <button class="plan-item__delete" type="button" aria-label="Delete">Delete</button>
+        </div>
+      </div>
+    </li>
+  </template>
+
+  <script src="config.js"></script>
+  <script src="firebase-adapter.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

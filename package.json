@@ -1,0 +1,25 @@
+{
+  "name": "planboard-sync",
+  "version": "2.0.0",
+  "private": true,
+  "main": "electron/main.js",
+  "description": "Synced planner calendar and todo PWA",
+  "scripts": {
+    "prepare:web": "node scripts/prepare-web.js && node write-native-config.js",
+    "start": "python server.py",
+    "check": "python -m py_compile server.py && node --check app.js && node --check firebase-adapter.js && node --check sw.js && node --check scripts/prepare-web.js && node --check write-native-config.js && node --check electron/main.js && node --check electron/preload.js",
+    "desktop:dev": "npm run prepare:web && electron electron/main.js",
+    "desktop:pack": "npm run prepare:web && electron-builder --win portable nsis",
+    "mobile:copy": "npm run prepare:web && cap copy",
+    "mobile:ios": "npm run prepare:web && cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.3.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/ios": "^8.3.0",
+    "electron": "^41.1.1",
+    "electron-builder": "^26.8.1"
+  }
+}

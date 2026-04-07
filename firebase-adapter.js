@@ -1,0 +1,730 @@
+(function () {
+  const config = window.__PLANBOARD_CONFIG__ || {};
+  const FIREBASE_SDK_VERSION = config.FIREBASE_SDK_VERSION || "12.4.0";
+  const LANE_SET = new Set(["ideas", "month", "week", "today", "done"]);
+  const PRIORITY_SET = new Set(["low", "medium", "high"]);
+
+  let clientPromise = null;
+  let authReadyPromise = null;
+
+  function isEnabled() {
+    return (config.DATA_SOURCE || "rest") === "firebase";
+  }
+
+  function requireFirebaseConfig() {
+    const requiredKeys = [
+      "FIREBASE_API_KEY",
+      "FIREBASE_AUTH_DOMAIN",
+      "FIREBASE_PROJECT_ID",
+      "FIREBASE_APP_ID",
+    ];
+    const missing = requiredKeys.filter((key) => !String(config[key] || "").trim());
+    if (missing.length) {
+      throw createError(`Firebase config is incomplete: ${missing.join(", ")}.`, 500);
+    }
+  }
+
+  async function getClient() {
+    if (!isEnabled()) {
+      return null;
+    }
+    if (!clientPromise) {
+      clientPromise = (async () => {
+        requireFirebaseConfig();
+        const baseUrl = `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}`;
+        const [{ initializeApp }, authMod, firestoreMod] = await Promise.all([
+          import(`${baseUrl}/firebase-app.js`),
+          import(`${baseUrl}/firebase-auth.js`),
+          import(`${baseUrl}/firebase-firestore.js`),
+        ]);
+
+        const app = initializeApp({
+          apiKey: config.FIREBASE_API_KEY,
+          authDomain: config.FIREBASE_AUTH_DOMAIN,
+          projectId: config.FIREBASE_PROJECT_ID,
+          storageBucket: config.FIREBASE_STORAGE_BUCKET || undefined,
+          messagingSenderId: config.FIREBASE_MESSAGING_SENDER_ID || undefined,
+          appId: config.FIREBASE_APP_ID,
+        });
+
+        const auth = authMod.getAuth(app);
+        const db = firestoreMod.getFirestore(app);
+        authReadyPromise = new Promise((resolve) => {
+          const unsubscribe = authMod.onAuthStateChanged(auth, (user) => {
+            unsubscribe();
+            resolve(user || null);
+          });
+        });
+
+        return { app, auth, db, authMod, firestoreMod };
+      })();
+    }
+    return clientPromise;
+  }
+
+  async function waitForAuthUser() {
+    const client = await getClient();
+    if (!client) {
+      return null;
+    }
+    if (authReadyPromise) {
+      await authReadyPromise;
+    }
+    return client.auth.currentUser || null;
+  }
+
+  function userRef(client, uid) {
+    return client.firestoreMod.doc(client.db, "users", uid);
+  }
+
+  function notesRef(client, uid) {
+    return client.firestoreMod.collection(client.db, "users", uid, "notes");
+  }
+
+  function plansRef(client, uid) {
+    return client.firestoreMod.collection(client.db, "users", uid, "plans");
+  }
+
+  function todosRef(client, uid) {
+    return client.firestoreMod.collection(client.db, "users", uid, "todos");
+  }
+
+  function noteDocRef(client, uid, noteDate) {
+    return client.firestoreMod.doc(client.db, "users", uid, "notes", noteDate);
+  }
+
+  function planDocRef(client, uid, planId) {
+    return client.firestoreMod.doc(client.db, "users", uid, "plans", planId);
+  }
+
+  function todoDocRef(client, uid, todoId) {
+    return client.firestoreMod.doc(client.db, "users", uid, "todos", todoId);
+  }
+
+  function createError(message, status = 400) {
+    const error = new Error(message);
+    error.status = status;
+    return error;
+  }
+
+  function nowIso() {
+    return new Date().toISOString();
+  }
+
+  function emailNormalize(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function isValidDate(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+    const parsed = new Date(`${value}T00:00:00`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }
+
+  function isValidTime(value) {
+    if (value === "") {
+      return true;
+    }
+    const match = /^(\d{2}):(\d{2})$/.exec(value);
+    if (!match) {
+      return false;
+    }
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+  }
+
+  function normalizeSubtasks(value) {
+    if (value == null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw createError("Subtasks must be a list.", 400);
+    }
+    return value.slice(0, 32).map((item) => {
+      if (!item || typeof item !== "object") {
+        throw createError("Each subtask must be an object.", 400);
+      }
+      const text = String(item.text || "").trim();
+      if (!text) {
+        return null;
+      }
+      return {
+        id: String(item.id || crypto.randomUUID()),
+        text: text.slice(0, 120),
+        done: Boolean(item.done),
+      };
+    }).filter(Boolean);
+  }
+
+  function normalizeSortOrder(value, fallback = 0) {
+    if (value == null || value === "") {
+      return fallback;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < -1_000_000_000 || parsed > 1_000_000_000) {
+      throw createError("Sort order is invalid.", 400);
+    }
+    return parsed;
+  }
+
+  function compareCreatedDesc(left, right) {
+    return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+  }
+
+  function serializeUserDoc(uid, user, userData) {
+    const email = String((userData && userData.email) || user.email || "").trim();
+    const fallbackName = email.includes("@") ? email.split("@")[0] : "Workspace";
+    return {
+      id: uid,
+      name: String((userData && userData.name) || user.displayName || fallbackName).trim(),
+      email,
+    };
+  }
+
+  function serializeNoteDoc(snapshot) {
+    const data = snapshot.data() || {};
+    return {
+      id: snapshot.id,
+      noteDate: String(data.noteDate || snapshot.id),
+      content: String(data.content || ""),
+      updatedAt: String(data.updatedAt || ""),
+    };
+  }
+
+  function serializePlanDoc(snapshot) {
+    const data = snapshot.data() || {};
+    return {
+      id: snapshot.id,
+      planDate: String(data.planDate || ""),
+      timeLabel: String(data.timeLabel || ""),
+      title: String(data.title || ""),
+      details: String(data.details || ""),
+      createdAt: String(data.createdAt || ""),
+      updatedAt: String(data.updatedAt || ""),
+    };
+  }
+
+  function serializeTodoDoc(snapshot) {
+    const data = snapshot.data() || {};
+    return {
+      id: snapshot.id,
+      title: String(data.title || ""),
+      details: String(data.details || ""),
+      subtasks: Array.isArray(data.subtasks) ? data.subtasks : [],
+      dueDate: data.dueDate ? String(data.dueDate) : null,
+      lane: String(data.lane || "ideas"),
+      sortOrder: Number.isFinite(Number(data.sortOrder)) ? Number(data.sortOrder) : 0,
+      priority: String(data.priority || "medium"),
+      done: Boolean(data.done),
+      createdAt: String(data.createdAt || ""),
+      updatedAt: String(data.updatedAt || ""),
+    };
+  }
+
+  async function ensureUserProfile(client, user, preferredName = "") {
+    const ref = userRef(client, user.uid);
+    const snapshot = await client.firestoreMod.getDoc(ref);
+    const name = String(preferredName || user.displayName || (user.email || "").split("@")[0] || "Workspace").trim();
+    const payload = {
+      email: emailNormalize(user.email || ""),
+      name,
+      updatedAt: nowIso(),
+    };
+    if (!snapshot.exists()) {
+      payload.createdAt = payload.updatedAt;
+    }
+    await client.firestoreMod.setDoc(ref, payload, { merge: true });
+    const merged = snapshot.exists() ? { ...snapshot.data(), ...payload } : payload;
+    return serializeUserDoc(user.uid, user, merged);
+  }
+
+  async function getBootstrapPayload(client, user) {
+    const [userSnapshot, noteSnapshots, planSnapshots, todoSnapshots] = await Promise.all([
+      client.firestoreMod.getDoc(userRef(client, user.uid)),
+      client.firestoreMod.getDocs(notesRef(client, user.uid)),
+      client.firestoreMod.getDocs(plansRef(client, user.uid)),
+      client.firestoreMod.getDocs(todosRef(client, user.uid)),
+    ]);
+
+    const serializedUser = userSnapshot.exists()
+      ? serializeUserDoc(user.uid, user, userSnapshot.data())
+      : await ensureUserProfile(client, user);
+
+    const notes = noteSnapshots.docs
+      .map(serializeNoteDoc)
+      .sort((left, right) => left.noteDate.localeCompare(right.noteDate));
+
+    const plans = planSnapshots.docs
+      .map(serializePlanDoc)
+      .sort((left, right) =>
+        left.planDate.localeCompare(right.planDate) ||
+        (left.timeLabel || "99:99").localeCompare(right.timeLabel || "99:99") ||
+        String(left.createdAt || "").localeCompare(String(right.createdAt || ""))
+      );
+
+    const todos = todoSnapshots.docs
+      .map(serializeTodoDoc)
+      .sort((left, right) =>
+        String(left.lane || "").localeCompare(String(right.lane || "")) ||
+        Number(left.sortOrder || 0) - Number(right.sortOrder || 0) ||
+        compareCreatedDesc(left, right)
+      );
+
+    return {
+      user: serializedUser,
+      notes,
+      plans,
+      todos,
+    };
+  }
+
+  async function requireUser(client) {
+    const user = await waitForAuthUser();
+    if (!user) {
+      throw createError("Session expired. Please sign in again.", 401);
+    }
+    return user;
+  }
+
+  async function getAllTodos(client, uid) {
+    const snapshots = await client.firestoreMod.getDocs(todosRef(client, uid));
+    return snapshots.docs.map(serializeTodoDoc);
+  }
+
+  async function nextSortOrder(client, uid, lane) {
+    const todos = await getAllTodos(client, uid);
+    const maxSortOrder = todos
+      .filter((todo) => todo.lane === lane)
+      .reduce((max, todo) => Math.max(max, Number(todo.sortOrder || 0)), 0);
+    return maxSortOrder + 1024;
+  }
+
+  async function currentOrNextSortOrder(client, uid, todoId, lane) {
+    const snapshot = await client.firestoreMod.getDoc(todoDocRef(client, uid, todoId));
+    if (snapshot.exists()) {
+      const data = snapshot.data() || {};
+      if (String(data.lane || "") === lane && data.sortOrder != null) {
+        return Number(data.sortOrder);
+      }
+    }
+    return nextSortOrder(client, uid, lane);
+  }
+
+  function mapFirebaseError(error) {
+    const code = String(error && error.code || "");
+    if (code === "auth/email-already-in-use") {
+      return createError("Email is already registered.", 409);
+    }
+    if (code === "auth/invalid-email") {
+      return createError("Email is invalid.", 400);
+    }
+    if (code === "auth/weak-password") {
+      return createError("Password must be at least 6 characters.", 400);
+    }
+    if (code === "auth/invalid-credential" || code === "auth/user-not-found" || code === "auth/wrong-password") {
+      return createError("Email or password is incorrect.", 401);
+    }
+    if (code === "permission-denied") {
+      return createError("You do not have permission to access this data.", 403);
+    }
+    if (code === "unavailable" || code === "auth/network-request-failed") {
+      return createError("Cannot reach Firebase right now.", 0);
+    }
+    return createError(error && error.message ? error.message : "Request failed.", error && error.status ? error.status : 500);
+  }
+
+  function requireBody(options) {
+    return options && typeof options.body === "object" && options.body ? options.body : {};
+  }
+
+  async function handleRegister(client, options) {
+    const body = requireBody(options);
+    const name = String(body.name || "").trim();
+    const email = emailNormalize(body.email || "");
+    const password = String(body.password || "");
+    if (name.length < 2) {
+      throw createError("Name is too short.", 400);
+    }
+    if (!email) {
+      throw createError("Email is invalid.", 400);
+    }
+    if (password.length < 6) {
+      throw createError("Password must be at least 6 characters.", 400);
+    }
+
+    const credential = await client.authMod.createUserWithEmailAndPassword(client.auth, email, password);
+    if (name) {
+      await client.authMod.updateProfile(credential.user, { displayName: name });
+    }
+    await ensureUserProfile(client, credential.user, name);
+    const payload = await getBootstrapPayload(client, credential.user);
+    payload.token = credential.user.uid;
+    return payload;
+  }
+
+  async function handleLogin(client, options) {
+    const body = requireBody(options);
+    const email = emailNormalize(body.email || "");
+    const password = String(body.password || "");
+    const credential = await client.authMod.signInWithEmailAndPassword(client.auth, email, password);
+    await ensureUserProfile(client, credential.user);
+    const payload = await getBootstrapPayload(client, credential.user);
+    payload.token = credential.user.uid;
+    return payload;
+  }
+
+  async function handleLogout(client) {
+    await client.authMod.signOut(client.auth);
+    return { ok: true };
+  }
+
+  async function handleBootstrap(client) {
+    const user = await requireUser(client);
+    return getBootstrapPayload(client, user);
+  }
+
+  async function handleMe(client) {
+    const user = await requireUser(client);
+    const snapshot = await client.firestoreMod.getDoc(userRef(client, user.uid));
+    return { user: serializeUserDoc(user.uid, user, snapshot.exists() ? snapshot.data() : null) };
+  }
+
+  async function handleUpsertNote(client, noteDate, options) {
+    const body = requireBody(options);
+    if (!isValidDate(noteDate)) {
+      throw createError("Date is invalid.", 400);
+    }
+    const user = await requireUser(client);
+    const content = String(body.content || "").trim();
+    if (content) {
+      await client.firestoreMod.setDoc(noteDocRef(client, user.uid, noteDate), {
+        noteDate,
+        content,
+        updatedAt: nowIso(),
+      }, { merge: true });
+    } else {
+      await client.firestoreMod.deleteDoc(noteDocRef(client, user.uid, noteDate));
+    }
+    return { ok: true };
+  }
+
+  async function handleCreatePlan(client, options) {
+    const body = requireBody(options);
+    const planDate = String(body.planDate || "").trim();
+    const timeLabel = String(body.timeLabel || "").trim();
+    const title = String(body.title || "").trim();
+    const details = String(body.details || "").trim();
+    if (!isValidDate(planDate)) {
+      throw createError("Plan date is invalid.", 400);
+    }
+    if (!isValidTime(timeLabel)) {
+      throw createError("Time must use HH:MM format.", 400);
+    }
+    if (title.length < 2) {
+      throw createError("Plan title is too short.", 400);
+    }
+    const user = await requireUser(client);
+    const ref = client.firestoreMod.doc(plansRef(client, user.uid));
+    const timestamp = nowIso();
+    const plan = {
+      id: ref.id,
+      planDate,
+      timeLabel,
+      title,
+      details,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await client.firestoreMod.setDoc(ref, plan);
+    return { plan };
+  }
+
+  async function handleUpdatePlan(client, planId, options) {
+    const body = requireBody(options);
+    const planDate = String(body.planDate || "").trim();
+    const timeLabel = String(body.timeLabel || "").trim();
+    const title = String(body.title || "").trim();
+    const details = String(body.details || "").trim();
+    if (!isValidDate(planDate)) {
+      throw createError("Plan date is invalid.", 400);
+    }
+    if (!isValidTime(timeLabel)) {
+      throw createError("Time must use HH:MM format.", 400);
+    }
+    if (title.length < 2) {
+      throw createError("Plan title is too short.", 400);
+    }
+    const user = await requireUser(client);
+    const ref = planDocRef(client, user.uid, planId);
+    const snapshot = await client.firestoreMod.getDoc(ref);
+    if (!snapshot.exists()) {
+      throw createError("Plan not found.", 404);
+    }
+    const previous = snapshot.data() || {};
+    const plan = {
+      id: planId,
+      planDate,
+      timeLabel,
+      title,
+      details,
+      createdAt: String(previous.createdAt || nowIso()),
+      updatedAt: nowIso(),
+    };
+    await client.firestoreMod.setDoc(ref, plan);
+    return { plan };
+  }
+
+  async function handleDeletePlan(client, planId) {
+    const user = await requireUser(client);
+    await client.firestoreMod.deleteDoc(planDocRef(client, user.uid, planId));
+    return { ok: true };
+  }
+
+  async function handleCreateTodo(client, options) {
+    const body = requireBody(options);
+    const title = String(body.title || "").trim();
+    const details = String(body.details || "").trim();
+    const dueDate = body.dueDate == null ? null : String(body.dueDate).trim() || null;
+    const lane = String(body.lane || "ideas").trim().toLowerCase() || "ideas";
+    const priority = String(body.priority || "medium").trim().toLowerCase();
+    const done = Boolean(body.done);
+    const subtasks = normalizeSubtasks(body.subtasks);
+    const sortOrder = normalizeSortOrder(body.sortOrder, 0);
+    if (title.length < 2) {
+      throw createError("Task title is too short.", 400);
+    }
+    if (dueDate && !isValidDate(dueDate)) {
+      throw createError("Due date is invalid.", 400);
+    }
+    if (!PRIORITY_SET.has(priority)) {
+      throw createError("Priority is invalid.", 400);
+    }
+    if (!LANE_SET.has(lane)) {
+      throw createError("Lane is invalid.", 400);
+    }
+
+    const user = await requireUser(client);
+    const ref = client.firestoreMod.doc(todosRef(client, user.uid));
+    const timestamp = nowIso();
+    const todo = {
+      id: ref.id,
+      title,
+      details,
+      subtasks,
+      dueDate,
+      lane,
+      sortOrder: sortOrder || await nextSortOrder(client, user.uid, lane),
+      priority,
+      done,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await client.firestoreMod.setDoc(ref, todo);
+    return { todo };
+  }
+
+  async function handleUpdateTodo(client, todoId, options) {
+    const body = requireBody(options);
+    const title = String(body.title || "").trim();
+    const details = String(body.details || "").trim();
+    const dueDate = body.dueDate == null ? null : String(body.dueDate).trim() || null;
+    const lane = String(body.lane || "ideas").trim().toLowerCase() || "ideas";
+    const priority = String(body.priority || "medium").trim().toLowerCase();
+    const done = Boolean(body.done);
+    const subtasks = normalizeSubtasks(body.subtasks);
+    const sortOrder = normalizeSortOrder(body.sortOrder, 0);
+    if (title.length < 2) {
+      throw createError("Task title is too short.", 400);
+    }
+    if (dueDate && !isValidDate(dueDate)) {
+      throw createError("Due date is invalid.", 400);
+    }
+    if (!PRIORITY_SET.has(priority)) {
+      throw createError("Priority is invalid.", 400);
+    }
+    if (!LANE_SET.has(lane)) {
+      throw createError("Lane is invalid.", 400);
+    }
+
+    const user = await requireUser(client);
+    const ref = todoDocRef(client, user.uid, todoId);
+    const snapshot = await client.firestoreMod.getDoc(ref);
+    if (!snapshot.exists()) {
+      throw createError("Task not found.", 404);
+    }
+    const previous = snapshot.data() || {};
+    const todo = {
+      id: todoId,
+      title,
+      details,
+      subtasks,
+      dueDate,
+      lane,
+      sortOrder: sortOrder || await currentOrNextSortOrder(client, user.uid, todoId, lane),
+      priority,
+      done,
+      createdAt: String(previous.createdAt || nowIso()),
+      updatedAt: nowIso(),
+    };
+    await client.firestoreMod.setDoc(ref, todo);
+    return { todo };
+  }
+
+  async function handleUpdateTodoLane(client, todoId, lane) {
+    const user = await requireUser(client);
+    const ref = todoDocRef(client, user.uid, todoId);
+    const snapshot = await client.firestoreMod.getDoc(ref);
+    if (!snapshot.exists()) {
+      throw createError("Task not found.", 404);
+    }
+    const previous = snapshot.data() || {};
+    const todo = {
+      ...previous,
+      id: todoId,
+      lane: lane === "done" ? String(previous.lane || "ideas") : lane,
+      sortOrder: lane === "done" ? Number(previous.sortOrder || 0) : await nextSortOrder(client, user.uid, lane),
+      done: lane === "done",
+      updatedAt: nowIso(),
+    };
+    await client.firestoreMod.setDoc(ref, todo, { merge: true });
+    return { todo };
+  }
+
+  async function handleReorderTodos(client, options) {
+    const body = requireBody(options);
+    const updates = body.updates;
+    if (!Array.isArray(updates) || !updates.length) {
+      throw createError("Updates are required.", 400);
+    }
+    if (updates.length > 200) {
+      throw createError("Too many updates.", 400);
+    }
+    const user = await requireUser(client);
+    const batch = client.firestoreMod.writeBatch(client.db);
+    updates.forEach((item) => {
+      if (!item || typeof item !== "object") {
+        throw createError("Each update must be an object.", 400);
+      }
+      const todoId = String(item.id || "").trim();
+      const lane = String(item.lane || "ideas").trim().toLowerCase() || "ideas";
+      const sortOrder = normalizeSortOrder(item.sortOrder, 0);
+      const done = Boolean(item.done);
+      if (!todoId) {
+        throw createError("Todo id is required.", 400);
+      }
+      if (!LANE_SET.has(lane)) {
+        throw createError("Lane is invalid.", 400);
+      }
+      batch.update(todoDocRef(client, user.uid, todoId), {
+        lane,
+        sortOrder,
+        done,
+        updatedAt: nowIso(),
+      });
+    });
+    await batch.commit();
+    const todos = await getAllTodos(client, user.uid);
+    todos.sort((left, right) =>
+      String(left.lane || "").localeCompare(String(right.lane || "")) ||
+      Number(left.sortOrder || 0) - Number(right.sortOrder || 0) ||
+      compareCreatedDesc(left, right)
+    );
+    return { todos };
+  }
+
+  async function handleClearCompleted(client) {
+    const user = await requireUser(client);
+    const todos = await getAllTodos(client, user.uid);
+    const completed = todos.filter((todo) => todo.done);
+    if (!completed.length) {
+      return { ok: true };
+    }
+    const batch = client.firestoreMod.writeBatch(client.db);
+    completed.forEach((todo) => {
+      batch.delete(todoDocRef(client, user.uid, todo.id));
+    });
+    await batch.commit();
+    return { ok: true };
+  }
+
+  async function handleDeleteTodo(client, todoId) {
+    const user = await requireUser(client);
+    await client.firestoreMod.deleteDoc(todoDocRef(client, user.uid, todoId));
+    return { ok: true };
+  }
+
+  async function api(path, options = {}) {
+    try {
+      const client = await getClient();
+      if (!client) {
+        throw createError("Firebase adapter is disabled.", 500);
+      }
+
+      if (path === "/auth/register" && (options.method || "GET") === "POST") {
+        return handleRegister(client, options);
+      }
+      if (path === "/auth/login" && (options.method || "GET") === "POST") {
+        return handleLogin(client, options);
+      }
+      if (path === "/auth/logout" && (options.method || "GET") === "POST") {
+        return handleLogout(client);
+      }
+      if (path === "/bootstrap" && (options.method || "GET") === "GET") {
+        return handleBootstrap(client);
+      }
+      if (path === "/auth/me" && (options.method || "GET") === "GET") {
+        return handleMe(client);
+      }
+      if (path === "/plans" && (options.method || "GET") === "POST") {
+        return handleCreatePlan(client, options);
+      }
+      if (path === "/todos" && (options.method || "GET") === "POST") {
+        return handleCreateTodo(client, options);
+      }
+      if (path === "/todos/reorder" && (options.method || "GET") === "POST") {
+        return handleReorderTodos(client, options);
+      }
+      if (path === "/todos/clear-completed" && (options.method || "GET") === "POST") {
+        return handleClearCompleted(client);
+      }
+
+      const noteMatch = /^\/notes\/(\d{4}-\d{2}-\d{2})$/.exec(path);
+      const planMatch = /^\/plans\/([A-Za-z0-9_-]+)$/.exec(path);
+      const todoLaneMatch = /^\/todos\/([A-Za-z0-9_-]+)\/lane\/(ideas|month|week|today|done)$/.exec(path);
+      const todoMatch = /^\/todos\/([A-Za-z0-9_-]+)$/.exec(path);
+
+      if (noteMatch && (options.method || "GET") === "PUT") {
+        return handleUpsertNote(client, noteMatch[1], options);
+      }
+      if (planMatch && (options.method || "GET") === "PUT") {
+        return handleUpdatePlan(client, planMatch[1], options);
+      }
+      if (planMatch && (options.method || "GET") === "DELETE") {
+        return handleDeletePlan(client, planMatch[1]);
+      }
+      if (todoLaneMatch && (options.method || "GET") === "PUT") {
+        return handleUpdateTodoLane(client, todoLaneMatch[1], todoLaneMatch[2]);
+      }
+      if (todoMatch && (options.method || "GET") === "PUT") {
+        return handleUpdateTodo(client, todoMatch[1], options);
+      }
+      if (todoMatch && (options.method || "GET") === "DELETE") {
+        return handleDeleteTodo(client, todoMatch[1]);
+      }
+
+      throw createError("Not found", 404);
+    } catch (error) {
+      throw mapFirebaseError(error);
+    }
+  }
+
+  window.PlanboardFirebaseAdapter = {
+    isEnabled,
+    getClient,
+    waitForAuthUser,
+    api,
+  };
+})();

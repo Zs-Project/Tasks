@@ -1,0 +1,2302 @@
+﻿const APP_CONFIG = window.__PLANBOARD_CONFIG__ || {};
+const DATA_SOURCE = APP_CONFIG.DATA_SOURCE || "rest";
+const FIREBASE_ADAPTER = window.PlanboardFirebaseAdapter || null;
+const USE_FIREBASE = DATA_SOURCE === "firebase";
+const API_BASE = `${(APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "")}/api`;
+const AUTO_SYNC_MS = 15000;
+const TOKEN_KEY = "planboard-token";
+const UI_KEY = "planboard-ui";
+const NOTIFICATION_KEY = "planboard-notified";
+const LANES = ["ideas", "month", "week", "today", "done"];
+const LANE_PREFIX = /^\[\[lane:(ideas|month|week|today|done)\]\]\s*/i;
+
+const DAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+const SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  month: "short",
+});
+
+const authScreen = document.querySelector("#authScreen");
+const appShell = document.querySelector("#appShell");
+const composerOverlay = document.querySelector("#composerOverlay");
+const authMessage = document.querySelector("#authMessage");
+const statusMessage = document.querySelector("#statusMessage");
+const avatarBadge = document.querySelector("#avatarBadge");
+const workspaceNameLabel = document.querySelector("#workspaceNameLabel");
+const userNameLabel = document.querySelector("#userNameLabel");
+const selectedDateLabel = document.querySelector("#selectedDateLabel");
+const selectedDateMeta = document.querySelector("#selectedDateMeta");
+const selectedDateInput = document.querySelector("#selectedDateInput");
+const planDateInput = document.querySelector("#planDateInput");
+const dailyNoteInput = document.querySelector("#dailyNoteInput");
+const notePreviewText = document.querySelector("#notePreviewText");
+const taskEditorId = document.querySelector("#taskEditorId");
+const planEditorId = document.querySelector("#planEditorId");
+const taskSubmitButton = document.querySelector("#taskSubmitButton");
+const planSubmitButton = document.querySelector("#planSubmitButton");
+const completedMeta = document.querySelector("#completedMeta");
+const clearCompletedButton = document.querySelector("#clearCompletedButton");
+const allTaskCountBadge = document.querySelector("#allTaskCountBadge");
+const allTaskCountHeader = document.querySelector("#allTaskCountHeader");
+const openTaskCount = document.querySelector("#openTaskCount");
+const noteCount = document.querySelector("#noteCount");
+const planCount = document.querySelector("#planCount");
+const syncStatusLabel = document.querySelector("#syncStatusLabel");
+const syncTimeLabel = document.querySelector("#syncTimeLabel");
+const composerTitle = document.querySelector("#composerTitle");
+const composerHint = document.querySelector("#composerHint");
+const installButton = document.querySelector("#installButton");
+const notificationButton = document.querySelector("#notificationButton");
+const refreshButton = document.querySelector("#refreshButton");
+const todoCardTemplate = document.querySelector("#todoCardTemplate");
+const planItemTemplate = document.querySelector("#planItemTemplate");
+const planList = document.querySelector("#planList");
+const todoLaneInput = document.querySelector("#todoLaneInput");
+const todoPriorityInput = document.querySelector("#todoPriorityInput");
+const todoDueDateInput = document.querySelector("#todoDueDateInput");
+const todoTitleInput = document.querySelector("#todoTitleInput");
+const planTitleInput = document.querySelector("#planTitleInput");
+const planDetailsInput = document.querySelector("#planDetailsInput");
+const quickAddForm = document.querySelector("#quickAddForm");
+const quickAddInput = document.querySelector("#quickAddInput");
+const quickAddLaneInput = document.querySelector("#quickAddLaneInput");
+const filterStateLabel = document.querySelector("#filterStateLabel");
+const filterButtons = {
+  all: document.querySelector("#filterAllButton"),
+  today: document.querySelector("#filterTodayButton"),
+  overdue: document.querySelector("#filterOverdueButton"),
+  high: document.querySelector("#filterHighButton"),
+};
+const sortSelect = document.querySelector("#sortSelect");
+const themeToggleButton = document.querySelector("#themeToggleButton");
+const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+const taskDetailPanel = document.querySelector("#taskDetailPanel");
+const taskDetailEmpty = document.querySelector("#taskDetailEmpty");
+const taskDetailForm = document.querySelector("#taskDetailForm");
+const detailHeading = document.querySelector("#detailHeading");
+const detailSaveState = document.querySelector("#detailSaveState");
+const detailTaskId = document.querySelector("#detailTaskId");
+const detailTitleInput = document.querySelector("#detailTitleInput");
+const detailDetailsInput = document.querySelector("#detailDetailsInput");
+const detailLaneInput = document.querySelector("#detailLaneInput");
+const detailPriorityInput = document.querySelector("#detailPriorityInput");
+const detailDueDateInput = document.querySelector("#detailDueDateInput");
+const detailSubtaskList = document.querySelector("#detailSubtaskList");
+const detailSubtaskMeta = document.querySelector("#detailSubtaskMeta");
+const detailSubtaskInput = document.querySelector("#detailSubtaskInput");
+const addDetailSubtaskButton = document.querySelector("#addDetailSubtaskButton");
+const toggleCompletedSubtasksButton = document.querySelector("#toggleCompletedSubtasksButton");
+const toggleTaskDoneButton = document.querySelector("#toggleTaskDoneButton");
+const deleteTaskButton = document.querySelector("#deleteTaskButton");
+const closeTaskDetailButton = document.querySelector("#closeTaskDetailButton");
+const taskActionOverlay = document.querySelector("#taskActionOverlay");
+const taskActionTitle = document.querySelector("#taskActionTitle");
+const taskActionEditButton = document.querySelector("#taskActionEditButton");
+const taskActionMoveList = document.querySelector("#taskActionMoveList");
+const closeTaskActionButton = document.querySelector("#closeTaskActionButton");
+const undoToast = document.querySelector("#undoToast");
+const undoToastLabel = document.querySelector("#undoToastLabel");
+const undoToastButton = document.querySelector("#undoToastButton");
+const mobileTabButtons = [...document.querySelectorAll(".mobile-tabbar__button")];
+
+const laneTargets = {
+  ideas: document.querySelector("#lane-ideas"),
+  month: document.querySelector("#lane-month"),
+  week: document.querySelector("#lane-week"),
+  today: document.querySelector("#lane-today"),
+  done: document.querySelector("#lane-done"),
+};
+
+const laneCountTargets = {
+  ideas: document.querySelector("#count-ideas"),
+  month: document.querySelector("#count-month"),
+  week: document.querySelector("#count-week"),
+  today: document.querySelector("#count-today"),
+  done: document.querySelector("#count-done"),
+};
+
+let deferredPrompt = null;
+let syncIntervalId = 0;
+let dragTodoId = "";
+let dragCardPosition = "after";
+let statusTimerId = 0;
+let detailSaveTimerId = 0;
+let syncLabelTimerId = 0;
+let undoTimerId = 0;
+
+const state = {
+  token: localStorage.getItem(TOKEN_KEY) || "",
+  user: null,
+  activeAuthMode: "login",
+  activeComposerTab: "task",
+  selectedDate: loadUiState().selectedDate,
+  filterMode: loadUiState().filterMode,
+  mobileView: loadUiState().mobileView,
+  sortMode: loadUiState().sortMode,
+  theme: loadUiState().theme,
+  notesByDate: {},
+  plans: [],
+  todos: [],
+  syncing: false,
+  editingTaskId: "",
+  editingPlanId: "",
+  notified: loadNotifiedState(),
+  detailTaskId: "",
+  detailDraft: null,
+  detailDirty: false,
+  detailSaving: false,
+  detailCompletedCollapsed: true,
+  taskActionTaskId: "",
+  lastSyncedAt: 0,
+  undoAction: null,
+};
+
+bindEvents();
+applyTheme();
+hydrateSession();
+registerServiceWorker();
+
+function loadUiState() {
+  const defaults = {
+    selectedDate: todayIso(),
+    filterMode: "all",
+    mobileView: "today",
+    sortMode: "manual",
+    theme: "dark",
+  };
+  try {
+    const parsed = JSON.parse(localStorage.getItem(UI_KEY) || "null");
+    return { ...defaults, ...(parsed || {}) };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveUiState() {
+  localStorage.setItem(
+    UI_KEY,
+    JSON.stringify({
+      selectedDate: state.selectedDate,
+      filterMode: state.filterMode,
+      mobileView: state.mobileView,
+      sortMode: state.sortMode,
+      theme: state.theme,
+    })
+  );
+}
+
+function loadNotifiedState() {
+  try {
+    return JSON.parse(localStorage.getItem(NOTIFICATION_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveNotifiedState() {
+  localStorage.setItem(NOTIFICATION_KEY, JSON.stringify(state.notified.slice(-200)));
+}
+
+function bindEvents() {
+  document.querySelector("#showLoginButton").addEventListener("click", () => setAuthMode("login"));
+  document.querySelector("#showRegisterButton").addEventListener("click", () => setAuthMode("register"));
+  document.querySelector("#closeComposerButton").addEventListener("click", closeComposer);
+
+  document.querySelector("#tabTaskButton").addEventListener("click", () => setComposerTab("task"));
+  document.querySelector("#tabNoteButton").addEventListener("click", () => setComposerTab("note"));
+  document.querySelector("#tabPlanButton").addEventListener("click", () => setComposerTab("plan"));
+
+  document.querySelector("#openComposerButton").addEventListener("click", () => openComposer("task"));
+  todoLaneInput.addEventListener("change", syncTaskDateByLane);
+  quickAddForm.addEventListener("submit", handleQuickAdd);
+
+  Object.entries(filterButtons).forEach(([mode, button]) => {
+    button.addEventListener("click", () => {
+      state.filterMode = mode;
+      saveUiState();
+      renderBoard();
+      renderSidebar();
+    });
+  });
+
+  mobileTabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.mobileView = button.dataset.mobileView || "today";
+      saveUiState();
+      renderMobileView();
+    });
+  });
+
+  sortSelect.addEventListener("change", () => {
+    state.sortMode = sortSelect.value;
+    saveUiState();
+    renderBoard();
+  });
+
+  themeToggleButton.addEventListener("click", () => {
+    state.theme = state.theme === "dark" ? "light" : "dark";
+    saveUiState();
+    applyTheme();
+    render();
+  });
+
+  closeTaskDetailButton.addEventListener("click", closeTaskDetail);
+  closeTaskActionButton.addEventListener("click", closeTaskActionSheet);
+  taskActionEditButton.addEventListener("click", () => {
+    const todoId = state.taskActionTaskId;
+    closeTaskActionSheet();
+    if (todoId) {
+      openTaskDetail(todoId, { focusTitle: true });
+    }
+  });
+  taskActionOverlay.addEventListener("click", (event) => {
+    if (event.target === taskActionOverlay) {
+      closeTaskActionSheet();
+    }
+  });
+
+  composerOverlay.addEventListener("click", (event) => {
+    if (event.target === composerOverlay) {
+      closeComposer();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (!composerOverlay.classList.contains("composer-overlay--hidden")) {
+      closeComposer();
+      return;
+    }
+    if (!taskActionOverlay.classList.contains("task-action-overlay--hidden")) {
+      closeTaskActionSheet();
+      return;
+    }
+    if (!taskDetailPanel.classList.contains("task-detail--hidden")) {
+      closeTaskDetail();
+    }
+  });
+
+  document.querySelector("#loginForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    try {
+      setAuthMessage("Signing in...");
+      const payload = await api("/auth/login", {
+        method: "POST",
+        body: {
+          email: String(formData.get("email") || "").trim(),
+          password: String(formData.get("password") || ""),
+        },
+      });
+      completeAuth(payload, "Signed in.");
+      event.currentTarget.reset();
+    } catch (error) {
+      setAuthMessage(error.message, true);
+    }
+  });
+
+  document.querySelector("#registerForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    try {
+      setAuthMessage("Creating account...");
+      const payload = await api("/auth/register", {
+        method: "POST",
+        body: {
+          name: String(formData.get("name") || "").trim(),
+          email: String(formData.get("email") || "").trim(),
+          password: String(formData.get("password") || ""),
+        },
+      });
+      completeAuth(payload, "Account created.");
+      event.currentTarget.reset();
+    } catch (error) {
+      setAuthMessage(error.message, true);
+    }
+  });
+
+  document.querySelector("#logoutButton").addEventListener("click", async () => {
+    const token = state.token;
+    clearSession();
+    try {
+      if (token) {
+        await api("/auth/logout", { method: "POST", tokenOverride: token });
+      }
+    } catch {}
+  });
+
+  document.querySelector("#todayButton").addEventListener("click", () => {
+    state.selectedDate = todayIso();
+    syncDateInputs();
+    saveUiState();
+    render();
+  });
+
+  refreshButton.addEventListener("click", async () => {
+    await refreshFromServer(false);
+  });
+
+  notificationButton.addEventListener("click", async () => {
+    await enableNotifications();
+  });
+
+  clearCompletedButton.addEventListener("click", async () => {
+    const completed = state.todos.filter((todo) => todo.done);
+    if (!completed.length) {
+      return;
+    }
+    try {
+      setStatus("Completed tasks removed.");
+      queueClearCompletedUndo(completed);
+      render();
+    } catch (error) {
+      setStatus(error.message, true);
+    }
+  });
+
+  selectedDateInput.addEventListener("change", () => {
+    state.selectedDate = selectedDateInput.value || todayIso();
+    syncComposerNote();
+    syncDateInputs();
+    saveUiState();
+    render();
+  });
+
+  planDateInput.addEventListener("change", () => {
+    state.selectedDate = planDateInput.value || todayIso();
+    syncDateInputs();
+    saveUiState();
+    render();
+  });
+
+  dailyNoteInput.addEventListener("input", () => {
+    const value = dailyNoteInput.value.trim();
+    notePreviewText.textContent = value ? summarize(value, 160) : "No note for this day yet.";
+  });
+
+  document.querySelector("#taskComposerForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    try {
+      const editingId = taskEditorId.value;
+      setStatus(editingId ? "Updating task..." : "Adding task...");
+      const requestedLane = String(formData.get("lane") || "ideas");
+      const payload = await api(editingId ? `/todos/${editingId}` : "/todos", {
+        method: editingId ? "PUT" : "POST",
+        body: {
+          title: String(formData.get("title") || "").trim(),
+          details: String(formData.get("details") || "").trim(),
+          subtasks: currentTaskSubtasks(editingId),
+          dueDate: String(formData.get("dueDate") || "").trim() || null,
+          lane: requestedLane,
+          priority: String(formData.get("priority") || "medium"),
+          done: editingId ? currentTaskDone(editingId) : false,
+        },
+      });
+      const hydrated = hydrateTodoFromServer(payload.todo);
+      if (editingId) {
+        updateTodo(hydrated);
+      } else {
+        state.todos.unshift(hydrated);
+      }
+      state.lastSyncedAt = Date.now();
+      if (state.detailTaskId === hydrated.id) {
+        state.detailDraft = cloneTodoDraft(hydrated);
+        state.detailDirty = false;
+      }
+      event.currentTarget.reset();
+      taskEditorId.value = "";
+      taskSubmitButton.textContent = "Add Task";
+      todoLaneInput.value = "ideas";
+      todoPriorityInput.value = "medium";
+      todoDueDateInput.value = "";
+      closeComposer();
+      render();
+      setStatus(editingId ? "Task updated." : "Task added.");
+    } catch (error) {
+      setStatus(error.message, true);
+    }
+  });
+
+  document.querySelector("#saveNoteButton").addEventListener("click", async () => {
+    try {
+      setStatus("Saving note...");
+      const content = dailyNoteInput.value.trim();
+      await api(`/notes/${state.selectedDate}`, {
+        method: "PUT",
+        body: { content },
+      });
+      if (content) {
+        state.notesByDate[state.selectedDate] = content;
+      } else {
+        delete state.notesByDate[state.selectedDate];
+      }
+      state.lastSyncedAt = Date.now();
+      renderSidebar();
+      closeComposer();
+      setStatus("Note saved.");
+    } catch (error) {
+      setStatus(error.message, true);
+    }
+  });
+
+  document.querySelector("#planComposerForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    try {
+      const editingId = planEditorId.value;
+      setStatus(editingId ? "Updating plan..." : "Adding plan...");
+      const payload = await api(editingId ? `/plans/${editingId}` : "/plans", {
+        method: editingId ? "PUT" : "POST",
+        body: {
+          planDate: planDateInput.value || state.selectedDate,
+          timeLabel: String(formData.get("timeLabel") || "").trim(),
+          title: String(formData.get("title") || "").trim(),
+          details: String(formData.get("details") || "").trim(),
+        },
+      });
+      if (editingId) {
+        state.plans = state.plans.map((plan) => (plan.id === payload.plan.id ? payload.plan : plan));
+      } else {
+        state.plans.push(payload.plan);
+      }
+      state.lastSyncedAt = Date.now();
+      event.currentTarget.reset();
+      planEditorId.value = "";
+      planSubmitButton.textContent = "Add Plan";
+      renderSidebar();
+      renderPlans();
+      closeComposer();
+      setStatus(editingId ? "Plan updated." : "Plan added.");
+    } catch (error) {
+      setStatus(error.message, true);
+    }
+  });
+
+  document.querySelectorAll(".column").forEach((column) => {
+    const lane = String(column.dataset.lane || "");
+    const laneBody = column.querySelector(".column__body");
+
+    const activateDropTarget = (event) => {
+      if (!dragTodoId || !lane) {
+        return;
+      }
+      event.preventDefault();
+      column.classList.add("is-drop-target");
+    };
+
+    const clearDropTarget = () => {
+      column.classList.remove("is-drop-target");
+    };
+
+    column.addEventListener("dragover", activateDropTarget);
+    laneBody?.addEventListener("dragover", activateDropTarget);
+
+    column.addEventListener("dragleave", (event) => {
+      if (event.relatedTarget && column.contains(event.relatedTarget)) {
+        return;
+      }
+      clearDropTarget();
+    });
+    laneBody?.addEventListener("dragleave", (event) => {
+      if (event.relatedTarget && column.contains(event.relatedTarget)) {
+        return;
+      }
+      clearDropTarget();
+    });
+
+    const handleLaneDrop = async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearDropTarget();
+      if (!dragTodoId || !lane) {
+        return;
+      }
+      const dragged = state.todos.find((entry) => entry.id === dragTodoId);
+      if (!dragged) {
+        dragTodoId = "";
+        dragCardPosition = "after";
+        return;
+      }
+      if (lane !== "done" && !dragged.done && canManualReorder()) {
+        await reorderTodo(dragTodoId, lane);
+      } else if (groupingLane(dragged) !== lane || dragged.done !== (lane === "done")) {
+        await moveTodoToLane(dragTodoId, lane);
+      }
+      dragTodoId = "";
+      dragCardPosition = "after";
+    };
+
+    column.addEventListener("drop", handleLaneDrop);
+    laneBody?.addEventListener("drop", handleLaneDrop);
+  });
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredPrompt = event;
+    installButton.hidden = false;
+  });
+
+  installButton.addEventListener("click", async () => {
+    if (!deferredPrompt) {
+      return;
+    }
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installButton.hidden = true;
+  });
+
+  window.addEventListener("focus", () => {
+    if (state.token) {
+      refreshFromServer(true);
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && state.token) {
+      refreshFromServer(true);
+    }
+  });
+
+  detailTitleInput.addEventListener("input", () => {
+    updateDetailDraft({ title: detailTitleInput.value });
+  });
+  detailDetailsInput.addEventListener("input", () => {
+    updateDetailDraft({ details: detailDetailsInput.value });
+  });
+  detailLaneInput.addEventListener("change", () => {
+    const patch = { lane: detailLaneInput.value };
+    if (detailLaneInput.value === "today" && !detailDueDateInput.value) {
+      patch.dueDate = state.selectedDate;
+      detailDueDateInput.value = state.selectedDate;
+    }
+    updateDetailDraft(patch);
+  });
+  detailPriorityInput.addEventListener("change", () => {
+    updateDetailDraft({ priority: detailPriorityInput.value });
+  });
+  detailDueDateInput.addEventListener("change", () => {
+    updateDetailDraft({ dueDate: detailDueDateInput.value || null });
+  });
+  addDetailSubtaskButton.addEventListener("click", addDetailSubtask);
+  toggleCompletedSubtasksButton.addEventListener("click", () => {
+    state.detailCompletedCollapsed = !state.detailCompletedCollapsed;
+    renderTaskDetail();
+  });
+  detailSubtaskInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addDetailSubtask();
+    }
+  });
+  toggleTaskDoneButton.addEventListener("click", async () => {
+    const todo = currentDetailTodo();
+    if (!todo) {
+      return;
+    }
+    await toggleTodoDone(todo.id, !todo.done);
+  });
+  deleteTaskButton.addEventListener("click", async () => {
+    const todo = currentDetailTodo();
+    if (!todo) {
+      return;
+    }
+    await deleteTodo(todo.id);
+  });
+  undoToastButton.addEventListener("click", () => {
+    undoLastAction();
+  });
+}
+
+function setAuthMode(mode) {
+  state.activeAuthMode = mode;
+  document.querySelector("#loginForm").classList.toggle("auth-form--hidden", mode !== "login");
+  document.querySelector("#registerForm").classList.toggle("auth-form--hidden", mode !== "register");
+  document.querySelector("#showLoginButton").classList.toggle("is-active", mode === "login");
+  document.querySelector("#showRegisterButton").classList.toggle("is-active", mode === "register");
+  setAuthMessage("");
+}
+
+function openComposer(tab) {
+  taskEditorId.value = "";
+  planEditorId.value = "";
+  document.querySelector("#taskComposerForm").reset();
+  document.querySelector("#planComposerForm").reset();
+  taskSubmitButton.textContent = "Add Task";
+  planSubmitButton.textContent = "Add Plan";
+  setComposerTab(tab);
+  syncDateInputs();
+  if (tab === "task") {
+    todoDueDateInput.value = "";
+    todoLaneInput.value = "ideas";
+    syncTaskDateByLane();
+  }
+  planDateInput.value = state.selectedDate;
+  if (tab === "note") {
+    syncComposerNote();
+  }
+  if (tab === "plan") {
+    if (!planEditorId.value) {
+      planSubmitButton.textContent = "Add Plan";
+    }
+    renderPlans();
+  }
+  composerOverlay.classList.remove("composer-overlay--hidden");
+  focusComposerField(tab);
+}
+
+function closeComposer() {
+  taskEditorId.value = "";
+  planEditorId.value = "";
+  taskSubmitButton.textContent = "Add Task";
+  planSubmitButton.textContent = "Add Plan";
+  composerOverlay.classList.add("composer-overlay--hidden");
+}
+
+function setComposerTab(tab) {
+  state.activeComposerTab = tab;
+  document.querySelector("#taskComposerForm").classList.toggle("composer-form--hidden", tab !== "task");
+  document.querySelector("#noteComposerForm").classList.toggle("composer-form--hidden", tab !== "note");
+  document.querySelector("#planComposerForm").classList.toggle("composer-form--hidden", tab !== "plan");
+  document.querySelector("#tabTaskButton").classList.toggle("is-active", tab === "task");
+  document.querySelector("#tabNoteButton").classList.toggle("is-active", tab === "note");
+  document.querySelector("#tabPlanButton").classList.toggle("is-active", tab === "plan");
+  composerTitle.textContent = tab === "task" ? "Add Task" : tab === "note" ? "Daily Note" : "Daily Plan";
+  composerHint.textContent = tab === "task"
+    ? "Create a task and move it between lanes when needed."
+    : tab === "note"
+      ? "Save a short note for the selected day."
+      : "Add a scheduled item for the selected day.";
+}
+
+async function hydrateSession() {
+  if (USE_FIREBASE) {
+    if (!FIREBASE_ADAPTER || !FIREBASE_ADAPTER.isEnabled()) {
+      setAuthMessage("Firebase adapter failed to load.", true);
+      return;
+    }
+    try {
+      await FIREBASE_ADAPTER.getClient();
+      const firebaseUser = await FIREBASE_ADAPTER.waitForAuthUser();
+      if (!firebaseUser) {
+        clearSession(true);
+        return;
+      }
+      state.token = firebaseUser.uid;
+      localStorage.setItem(TOKEN_KEY, state.token);
+      setStatus("Syncing workspace...");
+      const payload = await api("/bootstrap");
+      applyBootstrap(payload);
+      showApp();
+      render();
+      startAutoSync();
+      setStatus("Ready.");
+      return;
+    } catch (error) {
+      setAuthMessage(error.message, true);
+      return;
+    }
+  }
+
+  if (!state.token) {
+    clearSession(true);
+    return;
+  }
+  try {
+    setStatus("Syncing workspace...");
+    const payload = await api("/bootstrap");
+    applyBootstrap(payload);
+    showApp();
+    render();
+    startAutoSync();
+    setStatus("Ready.");
+  } catch (error) {
+    if (error.status === 401) {
+      clearSession(true);
+      setAuthMessage("Session expired. Please sign in again.", true);
+      return;
+    }
+    setAuthMessage(error.message, true);
+  }
+}
+
+function completeAuth(payload, message) {
+  state.token = payload.token || state.token || (payload.user ? payload.user.id : "");
+  localStorage.setItem(TOKEN_KEY, state.token);
+  applyBootstrap(payload);
+  showApp();
+  render();
+  startAutoSync();
+  setAuthMessage("");
+  setStatus(message);
+}
+
+function clearSession(silent = false) {
+  finalizePendingUndo(false);
+  state.token = "";
+  state.user = null;
+  state.notesByDate = {};
+  state.plans = [];
+  state.todos = [];
+  state.notified = [];
+  state.detailTaskId = "";
+  state.detailDraft = null;
+  state.detailDirty = false;
+  state.detailSaving = false;
+  state.taskActionTaskId = "";
+  state.lastSyncedAt = 0;
+  localStorage.removeItem(TOKEN_KEY);
+  saveNotifiedState();
+  stopAutoSync();
+  closeTaskDetail();
+  authScreen.classList.remove("app-hidden");
+  appShell.classList.add("app-hidden");
+  closeComposer();
+  if (!silent) {
+    setStatus("Signed out.");
+  }
+}
+
+function showApp() {
+  authScreen.classList.add("app-hidden");
+  appShell.classList.remove("app-hidden");
+}
+
+function applyBootstrap(payload) {
+  state.user = payload.user || null;
+  state.notesByDate = Object.fromEntries((payload.notes || []).map((note) => [note.noteDate, note.content]));
+  state.plans = payload.plans || [];
+  state.todos = (payload.todos || []).map(hydrateTodoFromServer);
+  if (state.todos.length && filteredTodos().length === 0 && state.filterMode !== "all") {
+    state.filterMode = "all";
+    saveUiState();
+  }
+  state.lastSyncedAt = Date.now();
+  if (state.detailDirty && state.detailTaskId && state.detailDraft) {
+    const exists = state.todos.some((todo) => todo.id === state.detailTaskId);
+    if (exists) {
+      updateTodo(hydrateTodoFromServer({
+        ...state.detailDraft,
+        lane: normalizeLane(state.detailDraft),
+      }));
+    }
+  }
+  if (state.detailTaskId && !state.todos.some((todo) => todo.id === state.detailTaskId)) {
+    closeTaskDetail();
+  }
+}
+
+function render() {
+  syncDateInputs();
+  sortSelect.value = state.sortMode;
+  applyTheme();
+  renderSidebar();
+  renderBoard();
+  renderTaskDetail();
+  renderUndoToast();
+  renderTaskActionSheet();
+  renderMobileView();
+  if (!composerOverlay.classList.contains("composer-overlay--hidden") && state.activeComposerTab === "plan") {
+    renderPlans();
+  }
+  updateNotificationButton();
+  scanNotifications();
+  renderSyncMeta();
+}
+
+function renderSidebar() {
+  const displayName = state.user?.name || "-";
+  const email = state.user?.email || "";
+  workspaceNameLabel.textContent = state.user ? `${displayName}'s workspace` : "Planboard";
+  userNameLabel.textContent = state.user ? `${displayName} (${email})` : "-";
+  avatarBadge.textContent = initialsForName(displayName);
+  selectedDateLabel.textContent = DAY_FORMATTER.format(new Date(`${state.selectedDate}T00:00:00`));
+  const plans = plansForDate(state.selectedDate);
+  const datedTasks = todosForDate(state.selectedDate);
+  selectedDateMeta.textContent = `${plans.length} plan${plans.length === 1 ? "" : "s"} / ${datedTasks.length} task${datedTasks.length === 1 ? "" : "s"}`;
+  allTaskCountBadge.textContent = String(state.todos.length);
+  openTaskCount.textContent = String(state.todos.filter((todo) => !todo.done).length);
+  noteCount.textContent = state.notesByDate[state.selectedDate] ? "1" : "0";
+  planCount.textContent = String(plans.length);
+  const completedCount = state.todos.filter((todo) => todo.done).length;
+  completedMeta.textContent = `${completedCount} completed`;
+  clearCompletedButton.hidden = completedCount === 0;
+}
+
+function renderTaskDetail() {
+  const todo = currentDetailTodo();
+  const isOpen = Boolean(todo);
+  appShell.classList.toggle("window-shell--detail-open", isOpen);
+  taskDetailPanel.classList.toggle("task-detail--hidden", !isOpen);
+  taskDetailPanel.setAttribute("aria-hidden", String(!isOpen));
+  taskDetailEmpty.classList.toggle("task-detail__empty--hidden", isOpen);
+  taskDetailForm.classList.toggle("task-detail__form--hidden", !isOpen);
+
+  if (!todo) {
+    state.detailTaskId = "";
+    state.detailDraft = null;
+    state.detailDirty = false;
+    state.detailSaving = false;
+    detailHeading.textContent = "Task details";
+    detailSaveState.textContent = "Pick a task to inspect and edit inline.";
+    detailTaskId.value = "";
+    detailSubtaskList.innerHTML = "";
+    detailSubtaskMeta.textContent = "0 items";
+    return;
+  }
+
+  const draft = state.detailDraft || cloneTodoDraft(todo);
+  if (!state.detailDraft) {
+    state.detailDraft = draft;
+  }
+  detailTaskId.value = todo.id;
+  detailTitleInput.value = draft.title || "";
+  detailDetailsInput.value = draft.details || "";
+  detailLaneInput.value = normalizeLane(draft);
+  detailPriorityInput.value = draft.priority || "medium";
+  detailDueDateInput.value = draft.dueDate || "";
+  syncTaskDetailChrome(draft);
+  renderDetailSubtasks(draft.subtasks || []);
+}
+
+function syncTaskDetailChrome(draft = state.detailDraft || currentDetailTodo()) {
+  if (!draft) {
+    detailHeading.textContent = "Task details";
+    detailSaveState.textContent = "Pick a task to inspect and edit inline.";
+    return;
+  }
+  detailHeading.textContent = draft.title || "Task details";
+  toggleTaskDoneButton.textContent = draft.done ? "Mark Active" : "Mark Done";
+  detailSaveState.textContent = state.detailSaving
+    ? "Saving changes..."
+    : state.detailDirty
+      ? "Unsaved changes..."
+      : "Saved";
+}
+
+function renderDetailSubtasks(subtasks) {
+  detailSubtaskList.innerHTML = "";
+  const completed = subtasks.filter((item) => item.done).length;
+  detailSubtaskMeta.textContent = `${completed}/${subtasks.length} done`;
+  toggleCompletedSubtasksButton.hidden = completed === 0;
+  toggleCompletedSubtasksButton.textContent = state.detailCompletedCollapsed
+    ? `Show completed (${completed})`
+    : `Hide completed (${completed})`;
+
+  if (!subtasks.length) {
+    const empty = document.createElement("li");
+    empty.className = "lane-empty";
+    empty.textContent = "No subtasks yet.";
+    detailSubtaskList.appendChild(empty);
+    return;
+  }
+
+  const pending = subtasks.filter((subtask) => !subtask.done);
+  const completedItems = subtasks.filter((subtask) => subtask.done);
+  const visibleCompleted = state.detailCompletedCollapsed ? [] : completedItems;
+
+  [...pending, ...visibleCompleted].forEach((subtask) => {
+    const item = document.createElement("li");
+    item.className = "subtask-item";
+    item.classList.toggle("is-done", Boolean(subtask.done));
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = Boolean(subtask.done);
+    toggle.addEventListener("change", () => {
+      updateDetailSubtask(subtask.id, { done: toggle.checked });
+    });
+
+    const text = document.createElement("input");
+    text.type = "text";
+    text.className = "subtask-item__text";
+    text.value = subtask.text;
+    text.maxLength = 120;
+    text.addEventListener("input", () => {
+      updateDetailSubtask(subtask.id, { text: text.value });
+    });
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "subtask-item__remove";
+    remove.textContent = "Delete";
+    remove.addEventListener("click", () => {
+      removeDetailSubtask(subtask.id);
+    });
+
+    item.append(toggle, text, remove);
+    detailSubtaskList.appendChild(item);
+  });
+
+  if (completedItems.length && state.detailCompletedCollapsed) {
+    const collapsed = document.createElement("li");
+    collapsed.className = "subtask-list__collapsed";
+    collapsed.textContent = `${completedItems.length} completed subtask${completedItems.length === 1 ? "" : "s"} hidden`;
+    detailSubtaskList.appendChild(collapsed);
+  }
+}
+
+function renderUndoToast() {
+  const isOpen = Boolean(state.undoAction);
+  undoToast.classList.toggle("undo-toast--hidden", !isOpen);
+  if (!isOpen) {
+    undoToastLabel.textContent = "";
+    return;
+  }
+  undoToastLabel.textContent = state.undoAction.label;
+}
+
+function renderTaskActionSheet() {
+  const todo = state.taskActionTaskId ? state.todos.find((entry) => entry.id === state.taskActionTaskId) : null;
+  const isOpen = Boolean(todo);
+  taskActionOverlay.classList.toggle("task-action-overlay--hidden", !isOpen);
+  taskActionOverlay.setAttribute("aria-hidden", String(!isOpen));
+
+  if (!todo) {
+    taskActionTitle.textContent = "Selected task";
+    taskActionMoveList.innerHTML = "";
+    return;
+  }
+
+  taskActionTitle.textContent = todo.title;
+  taskActionMoveList.innerHTML = "";
+  LANES.forEach((lane) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `task-action-move-list__button${groupingLane(todo) === lane ? " is-active" : ""}`;
+    button.textContent = laneLabel(lane);
+    button.disabled = groupingLane(todo) === lane;
+    button.addEventListener("click", async () => {
+      closeTaskActionSheet();
+      if (groupingLane(todo) !== lane || todo.done !== (lane === "done")) {
+        await moveTodoToLane(todo.id, lane);
+      }
+    });
+    taskActionMoveList.appendChild(button);
+  });
+}
+
+function renderMobileView() {
+  appShell.dataset.mobileView = state.mobileView || "today";
+  mobileTabButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.mobileView === appShell.dataset.mobileView);
+  });
+}
+
+function applyTheme() {
+  const theme = state.theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  themeToggleButton.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
+  if (themeColorMeta) {
+    themeColorMeta.setAttribute("content", theme === "dark" ? "#22262b" : "#f5f8fc");
+  }
+}
+
+function renderSyncMeta() {
+  if (state.syncing) {
+    syncStatusLabel.textContent = "Syncing";
+    syncTimeLabel.textContent = "Updating from server";
+    return;
+  }
+  syncStatusLabel.textContent = "Visible";
+  syncTimeLabel.textContent = state.lastSyncedAt ? `Synced ${relativeTime(state.lastSyncedAt)}` : "Waiting for first sync";
+}
+
+function renderFilterState(visibleCount) {
+  const totalCount = state.todos.length;
+  const parts = [];
+  if (state.filterMode !== "all") {
+    parts.push(
+      {
+        today: "Today",
+        overdue: "Overdue",
+        high: "High Priority",
+      }[state.filterMode] || state.filterMode
+    );
+  }
+  filterStateLabel.textContent = parts.length
+    ? `Showing ${visibleCount} of ${totalCount} tasks · ${parts.join(" · ")}`
+    : `${visibleCount} task${visibleCount === 1 ? "" : "s"} visible`;
+}
+
+function renderLaneEmpty(lane) {
+  const empty = document.createElement("div");
+  empty.className = "lane-empty";
+
+  const text = document.createElement("p");
+  text.textContent = emptyTextForLane(lane);
+  empty.appendChild(text);
+  return empty;
+}
+
+function renderBoard() {
+  const visibleTodos = filteredTodos();
+  const grouped = {
+    ideas: [],
+    month: [],
+    week: [],
+    today: [],
+    done: [],
+  };
+
+  allTaskCountHeader.textContent = String(visibleTodos.length);
+  visibleTodos.forEach((todo) => {
+    grouped[groupingLane(todo)].push(todo);
+  });
+
+  LANES.forEach((lane) => {
+    const target = laneTargets[lane];
+    target.innerHTML = "";
+    laneCountTargets[lane].textContent = String(grouped[lane].length);
+    if (!grouped[lane].length) {
+      const empty = renderLaneEmpty(lane);
+      target.appendChild(empty);
+      return;
+    }
+    sortTodos(grouped[lane]).forEach((todo) => {
+      target.appendChild(renderTodoCard(todo));
+    });
+  });
+  updateFilterButtons();
+  renderFilterState(visibleTodos.length);
+}
+
+function renderPlans() {
+  const plans = plansForDate(state.selectedDate);
+  planList.innerHTML = "";
+  if (!plans.length) {
+    const empty = document.createElement("li");
+    empty.className = "lane-empty";
+    empty.textContent = "No plans for this day yet.";
+    planList.appendChild(empty);
+    return;
+  }
+
+  plans.forEach((plan) => {
+    const fragment = planItemTemplate.content.cloneNode(true);
+    fragment.querySelector(".plan-item__time").textContent = plan.timeLabel || "Any time";
+    fragment.querySelector(".plan-item__title").textContent = plan.title;
+    fragment.querySelector(".plan-item__details").textContent = plan.details || "";
+    fragment.querySelector(".plan-item__edit").addEventListener("click", () => {
+      openPlanEditor(plan);
+    });
+    fragment.querySelector(".plan-item__delete").addEventListener("click", async () => {
+      try {
+        setStatus("Deleting plan...");
+        await api(`/plans/${plan.id}`, { method: "DELETE" });
+        state.plans = state.plans.filter((entry) => entry.id !== plan.id);
+        state.lastSyncedAt = Date.now();
+        renderSidebar();
+        renderPlans();
+        setStatus("Plan deleted.");
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    });
+    planList.appendChild(fragment);
+  });
+}
+
+function renderTodoCard(todo) {
+  const fragment = todoCardTemplate.content.cloneNode(true);
+  const card = fragment.querySelector(".task-card");
+  const checkbox = fragment.querySelector(".task-card__toggle");
+  const bodyButton = fragment.querySelector(".task-card__body-button");
+  const title = fragment.querySelector(".task-card__title");
+  const details = fragment.querySelector(".task-card__details");
+  const due = fragment.querySelector(".task-card__due");
+  const priority = fragment.querySelector(".task-card__priority");
+  const subtaskMeta = fragment.querySelector(".task-card__subtasks");
+  let longPressTimerId = 0;
+  let longPressTriggered = false;
+  let longPressStart = null;
+
+  card.dataset.id = todo.id;
+  card.dataset.lane = normalizeLane(todo);
+  card.classList.toggle("is-selected", todo.id === state.detailTaskId);
+  card.classList.toggle("is-done", todo.done);
+  card.classList.toggle("is-draggable", canDragTodo(todo));
+  card.draggable = canDragTodo(todo);
+  checkbox.checked = todo.done;
+  title.textContent = todo.title;
+  details.textContent = todo.details || "";
+  due.textContent = todo.dueDate ? SHORT_DATE_FORMATTER.format(new Date(`${todo.dueDate}T00:00:00`)) : "";
+  const subtaskCount = (todo.subtasks || []).length;
+  const doneSubtasks = (todo.subtasks || []).filter((item) => item.done).length;
+  subtaskMeta.textContent = subtaskCount ? `${doneSubtasks}/${subtaskCount} steps` : "";
+  priority.textContent = todo.priority || "";
+  priority.className = "task-card__priority";
+  if (todo.priority) {
+    priority.classList.add(`priority-${todo.priority}`);
+  }
+
+  card.addEventListener("dragstart", (event) => {
+    if (!canDragTodo(todo)) {
+      event.preventDefault();
+      return;
+    }
+    dragTodoId = todo.id;
+    card.style.opacity = "0.56";
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", todo.id);
+    }
+  });
+
+  card.addEventListener("dragend", () => {
+    dragTodoId = "";
+    dragCardPosition = "after";
+    card.style.opacity = "";
+    document.querySelectorAll(".column").forEach((column) => column.classList.remove("is-drop-target"));
+    document.querySelectorAll(".task-card").forEach((entry) => entry.classList.remove("is-drag-before", "is-drag-after"));
+  });
+
+  card.addEventListener("dragover", (event) => {
+    if (!dragTodoId || dragTodoId === todo.id) {
+        return;
+    }
+    const dragged = state.todos.find((entry) => entry.id === dragTodoId);
+    if (!dragged) {
+      return;
+    }
+    if (!canManualReorder() || dragged.done || todo.done) {
+      return;
+    }
+    event.preventDefault();
+    const bounds = card.getBoundingClientRect();
+    dragCardPosition = event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+    card.classList.toggle("is-drag-before", dragCardPosition === "before");
+    card.classList.toggle("is-drag-after", dragCardPosition === "after");
+  });
+
+  card.addEventListener("dragleave", () => {
+    card.classList.remove("is-drag-before", "is-drag-after");
+  });
+
+  card.addEventListener("drop", async (event) => {
+    if (!dragTodoId || dragTodoId === todo.id) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    card.classList.remove("is-drag-before", "is-drag-after");
+    const dragged = state.todos.find((entry) => entry.id === dragTodoId);
+    if (!dragged) {
+      dragTodoId = "";
+      dragCardPosition = "after";
+      return;
+    }
+    if (groupingLane(todo) !== "done" && !dragged.done && !todo.done && canManualReorder()) {
+      await reorderTodo(dragTodoId, normalizeLane(todo), todo.id, dragCardPosition);
+    } else if (groupingLane(dragged) !== groupingLane(todo) || dragged.done !== todo.done) {
+      await moveTodoToLane(dragTodoId, groupingLane(todo));
+    }
+    dragTodoId = "";
+    dragCardPosition = "after";
+  });
+
+  checkbox.addEventListener("change", async () => {
+    const success = await toggleTodoDone(todo.id, checkbox.checked);
+    if (!success) {
+      checkbox.checked = !checkbox.checked;
+    }
+  });
+
+  bodyButton.addEventListener("click", () => {
+    if (longPressTriggered) {
+      longPressTriggered = false;
+      return;
+    }
+    openTaskDetail(todo.id);
+  });
+
+  bodyButton.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openTaskDetail(todo.id);
+    }
+  });
+
+  bodyButton.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openTaskActionSheet(todo.id);
+  });
+
+  bodyButton.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") {
+      return;
+    }
+    longPressTriggered = false;
+    longPressStart = { x: event.clientX, y: event.clientY };
+    longPressTimerId = window.setTimeout(() => {
+      longPressTriggered = true;
+      openTaskActionSheet(todo.id);
+    }, 420);
+  });
+
+  bodyButton.addEventListener("pointermove", (event) => {
+    if (!longPressTimerId || !longPressStart) {
+      return;
+    }
+    const movedX = Math.abs(event.clientX - longPressStart.x);
+    const movedY = Math.abs(event.clientY - longPressStart.y);
+    if (movedX > 10 || movedY > 10) {
+      window.clearTimeout(longPressTimerId);
+      longPressTimerId = 0;
+      longPressStart = null;
+    }
+  });
+
+  const cancelLongPress = () => {
+    if (longPressTimerId) {
+      window.clearTimeout(longPressTimerId);
+      longPressTimerId = 0;
+    }
+    longPressStart = null;
+  };
+
+  bodyButton.addEventListener("pointerup", cancelLongPress);
+  bodyButton.addEventListener("pointercancel", cancelLongPress);
+  bodyButton.addEventListener("pointerleave", cancelLongPress);
+
+  return fragment;
+}
+
+async function moveTodoToLane(todoId, targetLane) {
+  const todo = state.todos.find((entry) => entry.id === todoId);
+  if (!todo) {
+    return;
+  }
+
+  const previous = cloneTodoDraft(todo);
+  const nextTodo = {
+    ...todo,
+    lane: targetLane === "done" ? todo.lane : targetLane,
+    sortOrder: targetLane === "done" ? todo.sortOrder : nextLocalSortOrder(targetLane, todo.id),
+    done: targetLane === "done",
+  };
+  if (targetLane === "today" && !nextTodo.dueDate) {
+    nextTodo.dueDate = state.selectedDate;
+  }
+
+  try {
+    setStatus("Updating task...");
+    updateTodo(nextTodo);
+    if (state.detailTaskId === todo.id) {
+      state.detailDraft = cloneTodoDraft(nextTodo);
+    }
+    render();
+    const payload = await api(`/todos/${todo.id}`, {
+      method: "PUT",
+      body: serializeTodoForApi(nextTodo),
+    });
+    const hydrated = hydrateTodoFromServer(payload.todo);
+    updateTodo(hydrated);
+    if (state.detailTaskId === todo.id) {
+      state.detailDraft = cloneTodoDraft(hydrated);
+      state.detailDirty = false;
+    }
+    state.lastSyncedAt = Date.now();
+    render();
+    setStatus("Task moved.");
+  } catch (error) {
+    updateTodo(previous);
+    if (state.detailTaskId === todo.id) {
+      state.detailDraft = previous;
+    }
+    render();
+    setStatus(error.message, true);
+  }
+}
+
+async function reorderTodo(todoId, targetLane, targetTodoId = "", position = "after") {
+  const dragged = state.todos.find((entry) => entry.id === todoId);
+  if (!dragged || !canManualReorder() || dragged.done || targetLane === "done") {
+    return;
+  }
+
+  const sourceLane = normalizeLane(dragged);
+  const previousTodos = state.todos.map(cloneTodoDraft);
+  const sourceItems = manualLaneTodos(sourceLane, todoId);
+  const targetItems = sourceLane === targetLane ? sourceItems : manualLaneTodos(targetLane);
+  const moved = { ...dragged, lane: targetLane, done: false };
+
+  let nextTarget = [...targetItems];
+  const insertIndex = targetTodoId
+    ? Math.max(0, nextTarget.findIndex((entry) => entry.id === targetTodoId) + (position === "after" ? 1 : 0))
+    : nextTarget.length;
+  nextTarget.splice(insertIndex, 0, moved);
+
+  const laneSnapshots = { [targetLane]: nextTarget };
+  if (sourceLane !== targetLane) {
+    laneSnapshots[sourceLane] = sourceItems;
+  }
+
+  const updates = [];
+  Object.entries(laneSnapshots).forEach(([lane, todos]) => {
+    todos.forEach((todo, index) => {
+      updates.push({
+        id: todo.id,
+        lane,
+        sortOrder: (index + 1) * 1024,
+        done: false,
+      });
+    });
+  });
+
+  state.todos = state.todos.map((todo) => {
+    const update = updates.find((entry) => entry.id === todo.id);
+    return update ? { ...todo, lane: update.lane, sortOrder: update.sortOrder, done: false } : todo;
+  });
+  if (state.detailTaskId === todoId) {
+    const updatedDetail = state.todos.find((entry) => entry.id === todoId);
+    if (updatedDetail) {
+      state.detailDraft = cloneTodoDraft(updatedDetail);
+      state.detailDirty = false;
+    }
+  }
+  render();
+
+  try {
+    const payload = await api("/todos/reorder", {
+      method: "POST",
+      body: { updates },
+    });
+    state.todos = (payload.todos || []).map(hydrateTodoFromServer);
+    state.lastSyncedAt = Date.now();
+    if (state.detailTaskId) {
+      const detailTodo = state.todos.find((entry) => entry.id === state.detailTaskId);
+      if (detailTodo) {
+        state.detailDraft = cloneTodoDraft(detailTodo);
+      }
+    }
+    render();
+  } catch (error) {
+    state.todos = previousTodos;
+    if (state.detailTaskId) {
+      const detailTodo = state.todos.find((entry) => entry.id === state.detailTaskId);
+      state.detailDraft = detailTodo ? cloneTodoDraft(detailTodo) : null;
+    }
+    render();
+    setStatus(error.message, true);
+  }
+}
+
+function manualLaneTodos(lane, excludeId = "") {
+  return [...state.todos]
+    .filter((todo) => !todo.done && normalizeLane(todo) === lane && todo.id !== excludeId)
+    .sort((left, right) => compareManualOrder(left, right) || compareCreatedDesc(left, right))
+    .map(cloneTodoDraft);
+}
+
+function nextLocalSortOrder(lane, excludeId = "") {
+  const laneTodos = manualLaneTodos(lane, excludeId);
+  if (!laneTodos.length) {
+    return 1024;
+  }
+  return Number(laneTodos[laneTodos.length - 1].sortOrder || 0) + 1024;
+}
+
+function filteredTodos() {
+  const today = todayIso();
+  return state.todos.filter((todo) => {
+    if (state.filterMode === "today") {
+      return !todo.done && (groupingLane(todo) === "today" || todo.dueDate === today);
+    }
+    if (state.filterMode === "overdue") {
+      return Boolean(todo.dueDate) && todo.dueDate < today && !todo.done;
+    }
+    if (state.filterMode === "high") {
+      return todo.priority === "high" && !todo.done;
+    }
+    return true;
+  });
+}
+
+function sortTodos(todos) {
+  const copy = [...todos];
+  if (state.sortMode === "due") {
+    return copy.sort((left, right) => compareDueDate(left, right) || compareCreatedDesc(left, right));
+  }
+  if (state.sortMode === "priority") {
+    return copy.sort((left, right) => comparePriority(left, right) || compareDueDate(left, right) || compareCreatedDesc(left, right));
+  }
+  if (state.sortMode === "newest") {
+    return copy.sort(compareCreatedDesc);
+  }
+  return copy.sort((left, right) => compareManualOrder(left, right) || compareCreatedDesc(left, right));
+}
+
+function groupingLane(todo) {
+  if (todo.done) {
+    return "done";
+  }
+  return normalizeLane(todo);
+}
+
+function normalizeLane(todo) {
+  if (LANES.includes(todo.lane)) {
+    return todo.lane === "done" ? "today" : todo.lane;
+  }
+  return inferLegacyLane(todo);
+}
+
+function hydrateTodoFromServer(todo) {
+  const parsed = parseTodoDetails(todo.details || "");
+  return {
+    ...todo,
+    details: parsed.details,
+    subtasks: Array.isArray(todo.subtasks)
+      ? todo.subtasks
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+          id: String(item.id || `sub-${Math.random().toString(36).slice(2, 8)}`),
+          text: String(item.text || "").trim(),
+          done: Boolean(item.done),
+        }))
+        .filter((item) => item.text)
+      : [],
+    lane: todo.lane && LANES.includes(todo.lane) ? todo.lane : parsed.lane || inferLegacyLane(todo),
+    sortOrder: Number.isFinite(Number(todo.sortOrder)) ? Number(todo.sortOrder) : 0,
+  };
+}
+
+function parseTodoDetails(rawDetails) {
+  const match = rawDetails.match(LANE_PREFIX);
+  if (!match) {
+    return { lane: "", details: rawDetails.trim() };
+  }
+  return {
+    lane: match[1].toLowerCase(),
+    details: rawDetails.replace(LANE_PREFIX, "").trim(),
+  };
+}
+
+function serializeTodoForApi(todo) {
+  return {
+    title: todo.title,
+    details: String(todo.details || "").replace(LANE_PREFIX, "").trim(),
+    subtasks: (todo.subtasks || []).map((item) => ({
+      id: item.id,
+      text: String(item.text || "").trim(),
+      done: Boolean(item.done),
+    })).filter((item) => item.text),
+    dueDate: todo.dueDate || null,
+    lane: normalizeLane(todo),
+    sortOrder: Number.isFinite(Number(todo.sortOrder)) ? Number(todo.sortOrder) : 0,
+    priority: todo.priority || "medium",
+    done: Boolean(todo.done),
+  };
+}
+
+function inferLegacyLane(todo) {
+  if (todo.done) {
+    return "done";
+  }
+  if (!todo.dueDate) {
+    return "ideas";
+  }
+  if (todo.dueDate === state.selectedDate) {
+    return "today";
+  }
+  if (isSameWeek(todo.dueDate, state.selectedDate)) {
+    return "week";
+  }
+  if (todo.dueDate.slice(0, 7) === state.selectedDate.slice(0, 7)) {
+    return "month";
+  }
+  return "ideas";
+}
+
+function emptyTextForLane(lane) {
+  return {
+    ideas: "No tasks in this lane yet.",
+    month: "Nothing planned for this month.",
+    week: "Nothing planned for this week.",
+    today: "Nothing planned for today.",
+    done: "No completed tasks yet.",
+  }[lane];
+}
+
+function plansForDate(iso) {
+  return state.plans
+    .filter((plan) => plan.planDate === iso)
+    .sort((left, right) => (left.timeLabel || "99:99").localeCompare(right.timeLabel || "99:99"));
+}
+
+function todosForDate(iso) {
+  return state.todos.filter((todo) => {
+    if (todo.dueDate === iso) {
+      return true;
+    }
+    return iso === todayIso() && groupingLane(todo) === "today" && !todo.done;
+  });
+}
+
+function updateTodo(nextTodo) {
+  state.todos = state.todos.map((todo) => (todo.id === nextTodo.id ? nextTodo : todo));
+}
+
+function currentTaskDone(id) {
+  return Boolean(state.todos.find((todo) => todo.id === id)?.done);
+}
+
+function currentTaskSubtasks(id) {
+  if (!id) {
+    return [];
+  }
+  return cloneTodoDraft(state.todos.find((todo) => todo.id === id) || { subtasks: [] }).subtasks || [];
+}
+
+function currentDetailTodo() {
+  return state.detailTaskId ? state.todos.find((todo) => todo.id === state.detailTaskId) || null : null;
+}
+
+function openTaskDetail(todoId, options = {}) {
+  const todo = state.todos.find((entry) => entry.id === todoId);
+  if (!todo) {
+    return;
+  }
+  state.detailTaskId = todo.id;
+  state.detailDraft = cloneTodoDraft(todo);
+  state.detailDirty = false;
+  state.detailSaving = false;
+  state.detailCompletedCollapsed = true;
+  renderTaskDetail();
+  renderBoard();
+  if (options.focusTitle) {
+    window.setTimeout(() => {
+      detailTitleInput.focus();
+      detailTitleInput.select();
+    }, 0);
+  }
+}
+
+function closeTaskDetail() {
+  if (detailSaveTimerId) {
+    window.clearTimeout(detailSaveTimerId);
+    detailSaveTimerId = 0;
+  }
+  state.detailTaskId = "";
+  state.detailDraft = null;
+  state.detailDirty = false;
+  state.detailSaving = false;
+  state.detailCompletedCollapsed = true;
+  renderTaskDetail();
+  renderBoard();
+}
+
+function openTaskActionSheet(todoId) {
+  const todo = state.todos.find((entry) => entry.id === todoId);
+  if (!todo) {
+    return;
+  }
+  state.taskActionTaskId = todo.id;
+  renderTaskActionSheet();
+}
+
+function closeTaskActionSheet() {
+  if (document.activeElement instanceof HTMLElement && taskActionOverlay.contains(document.activeElement)) {
+    document.activeElement.blur();
+  }
+  state.taskActionTaskId = "";
+  renderTaskActionSheet();
+}
+
+function cloneTodoDraft(todo) {
+  return {
+    ...todo,
+    subtasks: (todo.subtasks || []).map((item) => ({ ...item })),
+  };
+}
+
+function updateDetailDraft(patch) {
+  if (!state.detailDraft) {
+    return;
+  }
+  state.detailDraft = {
+    ...state.detailDraft,
+    ...patch,
+  };
+  state.detailDirty = true;
+  syncTaskDetailChrome(state.detailDraft);
+  scheduleDetailSave();
+}
+
+function scheduleDetailSave() {
+  if (detailSaveTimerId) {
+    window.clearTimeout(detailSaveTimerId);
+  }
+  detailSaveTimerId = window.setTimeout(() => {
+    flushDetailSave();
+  }, 360);
+}
+
+async function flushDetailSave() {
+  detailSaveTimerId = 0;
+  if (!state.detailTaskId || !state.detailDraft || state.detailSaving || !state.detailDirty) {
+    return;
+  }
+  const previous = currentDetailTodo();
+  if (!previous) {
+    return;
+  }
+  if (String(state.detailDraft.title || "").trim().length < 2) {
+    detailSaveState.textContent = "Title must be at least 2 characters.";
+    return;
+  }
+  const optimistic = hydrateTodoFromServer({
+    ...previous,
+    ...state.detailDraft,
+    lane: normalizeLane(state.detailDraft),
+  });
+
+  state.detailSaving = true;
+  if (optimistic) {
+    updateTodo(optimistic);
+    renderBoard();
+  }
+  renderTaskDetail();
+
+  try {
+    const payload = await api(`/todos/${state.detailTaskId}`, {
+      method: "PUT",
+      body: serializeTodoForApi(state.detailDraft),
+    });
+    const hydrated = hydrateTodoFromServer(payload.todo);
+    updateTodo(hydrated);
+    state.detailDraft = cloneTodoDraft(hydrated);
+    state.detailDirty = false;
+    state.detailSaving = false;
+    state.lastSyncedAt = Date.now();
+    render();
+  } catch (error) {
+    state.detailSaving = false;
+    if (previous) {
+      updateTodo(previous);
+    }
+    render();
+    setStatus(error.message, true);
+  }
+}
+
+function updateDetailSubtask(id, patch) {
+  if (!state.detailDraft) {
+    return;
+  }
+  state.detailDraft = {
+    ...state.detailDraft,
+    subtasks: (state.detailDraft.subtasks || []).map((item) => item.id === id ? { ...item, ...patch } : item),
+  };
+  state.detailDirty = true;
+  renderTaskDetail();
+  scheduleDetailSave();
+}
+
+function removeDetailSubtask(id) {
+  if (!state.detailDraft) {
+    return;
+  }
+  state.detailDraft = {
+    ...state.detailDraft,
+    subtasks: (state.detailDraft.subtasks || []).filter((item) => item.id !== id),
+  };
+  state.detailDirty = true;
+  renderTaskDetail();
+  scheduleDetailSave();
+}
+
+function addDetailSubtask() {
+  if (!state.detailDraft) {
+    return;
+  }
+  const text = detailSubtaskInput.value.trim();
+  if (!text) {
+    return;
+  }
+  state.detailDraft = {
+    ...state.detailDraft,
+    subtasks: [
+      ...(state.detailDraft.subtasks || []),
+      { id: crypto.randomUUID ? crypto.randomUUID() : `sub-${Date.now()}`, text, done: false },
+    ],
+  };
+  detailSubtaskInput.value = "";
+  state.detailDirty = true;
+  renderTaskDetail();
+  scheduleDetailSave();
+}
+
+async function handleQuickAdd(event) {
+  event.preventDefault();
+  const title = quickAddInput.value.trim();
+  if (title.length < 2) {
+    setStatus("Task title is too short.", true);
+    return;
+  }
+  const lane = quickAddLaneInput.value || "ideas";
+  try {
+    setStatus("Adding task...");
+    const payload = await api("/todos", {
+      method: "POST",
+      body: {
+        title,
+        details: "",
+        subtasks: [],
+        dueDate: lane === "today" ? state.selectedDate : null,
+        lane,
+        sortOrder: nextLocalSortOrder(lane),
+        priority: "medium",
+        done: false,
+      },
+    });
+    state.todos.unshift(hydrateTodoFromServer(payload.todo));
+    state.lastSyncedAt = Date.now();
+    quickAddInput.value = "";
+    render();
+    setStatus("Task added.");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function finalizeUndoAction() {
+  if (!state.undoAction) {
+    return;
+  }
+  const action = state.undoAction;
+  if (undoTimerId) {
+    window.clearTimeout(undoTimerId);
+    undoTimerId = 0;
+  }
+  state.undoAction = null;
+  renderUndoToast();
+  action.commit().catch((error) => {
+    setStatus(error.message || "Could not finish the action.", true);
+  });
+}
+
+function setUndoAction(action) {
+  finalizePendingUndo(false);
+  state.undoAction = action;
+  renderUndoToast();
+  undoTimerId = window.setTimeout(() => {
+    finalizePendingUndo(false);
+  }, 5000);
+}
+
+function finalizePendingUndo(rollback) {
+  if (!state.undoAction) {
+    return;
+  }
+  const action = state.undoAction;
+  if (undoTimerId) {
+    window.clearTimeout(undoTimerId);
+    undoTimerId = 0;
+  }
+  state.undoAction = null;
+  renderUndoToast();
+  if (rollback) {
+    Promise.resolve(action.rollback()).catch((error) => {
+      setStatus(error.message || "Could not undo the action.", true);
+    });
+    return;
+  }
+  action.commit().catch((error) => {
+    setStatus(error.message || "Could not finish the action.", true);
+  });
+}
+
+function undoLastAction() {
+  finalizePendingUndo(true);
+}
+
+function queueClearCompletedUndo(completed) {
+  const previousTodos = state.todos.map(cloneTodoDraft);
+  state.todos = state.todos.filter((todo) => !todo.done);
+  render();
+  setUndoAction({
+    label: `${completed.length} completed task${completed.length === 1 ? "" : "s"} cleared`,
+    rollback: () => {
+      state.todos = previousTodos;
+      render();
+      setStatus("Clear undone.");
+    },
+    commit: async () => {
+      await api("/todos/clear-completed", { method: "POST" });
+      state.lastSyncedAt = Date.now();
+      render();
+      setStatus("Completed tasks cleared.");
+    },
+  });
+}
+
+async function toggleTodoDone(todoId, nextDone) {
+  const todo = state.todos.find((entry) => entry.id === todoId);
+  if (!todo) {
+    return false;
+  }
+  const previous = cloneTodoDraft(todo);
+  const optimistic = { ...todo, done: nextDone };
+  updateTodo(optimistic);
+  if (state.detailTaskId === todo.id) {
+    state.detailDraft = cloneTodoDraft(optimistic);
+    state.detailDirty = false;
+  }
+  render();
+
+  try {
+    const payload = await api(`/todos/${todo.id}`, {
+      method: "PUT",
+      body: serializeTodoForApi(optimistic),
+    });
+    const hydrated = hydrateTodoFromServer(payload.todo);
+    updateTodo(hydrated);
+    if (state.detailTaskId === todo.id) {
+      state.detailDraft = cloneTodoDraft(hydrated);
+    }
+    state.lastSyncedAt = Date.now();
+    render();
+    setUndoAction({
+      label: nextDone ? "Task marked done" : "Task marked active",
+      rollback: async () => {
+        const revertPayload = await api(`/todos/${todo.id}`, {
+          method: "PUT",
+          body: serializeTodoForApi(previous),
+        });
+        const reverted = hydrateTodoFromServer(revertPayload.todo);
+        updateTodo(reverted);
+        if (state.detailTaskId === todo.id) {
+          state.detailDraft = cloneTodoDraft(reverted);
+        }
+        state.lastSyncedAt = Date.now();
+        render();
+        setStatus("Change undone.");
+      },
+      commit: async () => Promise.resolve(),
+    });
+    return true;
+  } catch (error) {
+    updateTodo(previous);
+    if (state.detailTaskId === todo.id) {
+      state.detailDraft = previous;
+    }
+    render();
+    setStatus(error.message, true);
+    return false;
+  }
+}
+
+async function deleteTodo(todoId) {
+  const todo = state.todos.find((entry) => entry.id === todoId);
+  if (!todo) {
+    return;
+  }
+  try {
+    const previousTodos = state.todos.map(cloneTodoDraft);
+    state.todos = state.todos.filter((entry) => entry.id !== todoId);
+    if (state.detailTaskId === todoId) {
+      closeTaskDetail();
+    }
+    render();
+    setUndoAction({
+      label: "Task deleted",
+      rollback: () => {
+        state.todos = previousTodos;
+        render();
+        setStatus("Delete undone.");
+      },
+      commit: async () => {
+        await api(`/todos/${todoId}`, { method: "DELETE" });
+        state.lastSyncedAt = Date.now();
+        render();
+        setStatus("Task deleted.");
+      },
+    });
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function openTaskEditor(todo) {
+  taskEditorId.value = todo.id;
+  setComposerTab("task");
+  todoTitleInput.value = todo.title;
+  document.querySelector("#todoDetailsInput").value = todo.details || "";
+  todoLaneInput.value = normalizeLane(todo);
+  todoPriorityInput.value = todo.priority || "medium";
+  todoDueDateInput.value = todo.dueDate || "";
+  taskSubmitButton.textContent = "Save Task";
+  composerOverlay.classList.remove("composer-overlay--hidden");
+  focusComposerField("task");
+}
+
+function syncTaskDateByLane() {
+  const lane = todoLaneInput.value;
+  if (taskEditorId.value) {
+    return;
+  }
+  if (lane === "today" && !todoDueDateInput.value) {
+    todoDueDateInput.value = state.selectedDate;
+  }
+}
+
+function syncComposerNote() {
+  if (state.activeComposerTab !== "note" || composerOverlay.classList.contains("composer-overlay--hidden")) {
+    return;
+  }
+  const note = state.notesByDate[state.selectedDate] || "";
+  dailyNoteInput.value = note;
+  notePreviewText.textContent = note ? summarize(note, 160) : "No note for this day yet.";
+}
+
+function openPlanEditor(plan) {
+  planEditorId.value = plan.id;
+  setComposerTab("plan");
+  planDateInput.value = plan.planDate;
+  state.selectedDate = plan.planDate;
+  syncDateInputs();
+  document.querySelector("#planTimeInput").value = plan.timeLabel || "";
+  planTitleInput.value = plan.title;
+  planDetailsInput.value = plan.details || "";
+  planSubmitButton.textContent = "Save Plan";
+  composerOverlay.classList.remove("composer-overlay--hidden");
+  focusComposerField("plan");
+}
+
+function updateFilterButtons() {
+  Object.entries(filterButtons).forEach(([mode, button]) => {
+    button.classList.toggle("is-active", state.filterMode === mode);
+  });
+}
+
+function focusComposerField(tab) {
+  window.setTimeout(() => {
+    if (tab === "task") {
+      todoTitleInput.focus();
+      return;
+    }
+    if (tab === "note") {
+      dailyNoteInput.focus();
+      return;
+    }
+    planTitleInput.focus();
+  }, 0);
+}
+
+function syncDateInputs() {
+  selectedDateInput.value = state.selectedDate;
+  planDateInput.value = state.selectedDate;
+}
+
+async function refreshFromServer(silent) {
+  if (!state.token || state.syncing || (silent && state.undoAction)) {
+    return;
+  }
+  state.syncing = true;
+  renderBoard();
+  if (!silent) {
+    setStatus("Refreshing...");
+  }
+
+  try {
+    const payload = await api("/bootstrap");
+    applyBootstrap(payload);
+    render();
+    if (!silent) {
+    setStatus("Updated.");
+    }
+  } catch (error) {
+    if (error.status === 401) {
+      clearSession(true);
+      setAuthMessage("Session expired. Please sign in again.", true);
+      return;
+    }
+    if (!silent) {
+      setStatus(error.message, true);
+    }
+  } finally {
+    state.syncing = false;
+    renderSyncMeta();
+    renderBoard();
+  }
+}
+
+function startAutoSync() {
+  stopAutoSync();
+  syncIntervalId = window.setInterval(() => {
+    refreshFromServer(true);
+  }, AUTO_SYNC_MS);
+  syncLabelTimerId = window.setInterval(() => {
+    renderSyncMeta();
+  }, 30000);
+}
+
+function stopAutoSync() {
+  if (syncIntervalId) {
+    window.clearInterval(syncIntervalId);
+    syncIntervalId = 0;
+  }
+  if (syncLabelTimerId) {
+    window.clearInterval(syncLabelTimerId);
+    syncLabelTimerId = 0;
+  }
+}
+
+function setAuthMessage(message, isError = false) {
+  authMessage.textContent = message;
+  authMessage.classList.toggle("is-error", Boolean(isError));
+}
+
+function setStatus(message, isError = false) {
+  if (statusTimerId) {
+    window.clearTimeout(statusTimerId);
+    statusTimerId = 0;
+  }
+  statusMessage.textContent = message;
+  statusMessage.classList.toggle("is-error", Boolean(isError));
+  if (!message || isError) {
+    return;
+  }
+  if (message === "Ready." || /(saved|updated|deleted|cleared|enabled|moved)\.$/i.test(message)) {
+    statusTimerId = window.setTimeout(() => {
+      statusMessage.textContent = "";
+      statusMessage.classList.remove("is-error");
+      statusTimerId = 0;
+    }, 2200);
+  }
+}
+
+async function api(path, options = {}) {
+  if (USE_FIREBASE) {
+    if (!FIREBASE_ADAPTER || !FIREBASE_ADAPTER.isEnabled()) {
+      const error = new Error("Firebase adapter failed to load.");
+      error.status = 500;
+      throw error;
+    }
+    return FIREBASE_ADAPTER.api(path, options);
+  }
+
+  const headers = {
+    Accept: "application/json",
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(options.headers || {}),
+  };
+
+  const token = options.tokenOverride || state.token;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method || "GET",
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch {
+    const error = new Error("Cannot reach the server.");
+    error.status = 0;
+    throw error;
+  }
+
+  let payload = {};
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    payload = await response.json();
+  }
+
+  if (!response.ok) {
+    const error = new Error(payload.error || `Request failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+function summarize(text, limit) {
+  return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}...` : text;
+}
+
+function relativeTime(timestamp) {
+  const diffSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (diffSeconds < 10) {
+    return "just now";
+  }
+  if (diffSeconds < 60) {
+    return `${diffSeconds}s ago`;
+  }
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m ago`;
+  }
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+function todayIso() {
+  return dateToLocalIso(new Date());
+}
+
+function dateToLocalIso(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isSameWeek(leftIso, rightIso) {
+  const left = new Date(`${leftIso}T00:00:00`);
+  const right = new Date(`${rightIso}T00:00:00`);
+  const leftWeekStart = weekStart(left);
+  const rightWeekStart = weekStart(right);
+  return leftWeekStart.getTime() === rightWeekStart.getTime();
+}
+
+function weekStart(date) {
+  const next = new Date(date);
+  const day = next.getDay() || 7;
+  next.setDate(next.getDate() - day + 1);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+  try {
+    await navigator.serviceWorker.register("sw.js");
+  } catch {}
+}
+
+function laneLabel(lane) {
+  return {
+    ideas: "Ideas",
+    month: "This Month",
+    week: "This Week",
+    today: "Today",
+    done: "Completed",
+  }[lane] || lane;
+}
+
+function comparePriority(left, right) {
+  const rank = { high: 0, medium: 1, low: 2 };
+  return (rank[left.priority] ?? 9) - (rank[right.priority] ?? 9);
+}
+
+function compareDueDate(left, right) {
+  const l = left.dueDate || "9999-12-31";
+  const r = right.dueDate || "9999-12-31";
+  return l.localeCompare(r);
+}
+
+function compareManualOrder(left, right) {
+  return Number(left.sortOrder || 0) - Number(right.sortOrder || 0);
+}
+
+function compareCreatedDesc(left, right) {
+  return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+}
+
+function canDragTodo(todo) {
+  return Boolean(todo && todo.id);
+}
+
+function canManualReorder() {
+  return state.sortMode === "manual" && state.filterMode === "all";
+}
+
+function initialsForName(name) {
+  if (!name || name === "-") {
+    return "PB";
+  }
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0]?.toUpperCase() || "").join("") || "PB";
+}
+
+async function enableNotifications() {
+  if (!("Notification" in window)) {
+    setStatus("This browser does not support notifications.", true);
+    return;
+  }
+  if (Notification.permission === "granted") {
+    setStatus("Notifications are already enabled.");
+    render();
+    scanNotifications();
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission === "granted") {
+    setStatus("Notifications enabled.");
+    render();
+    scanNotifications();
+    return;
+  }
+  setStatus("Notification permission was not granted.", true);
+  render();
+}
+
+function updateNotificationButton() {
+  if (!("Notification" in window)) {
+    notificationButton.textContent = "Notifications Unsupported";
+    notificationButton.disabled = true;
+    return;
+  }
+  notificationButton.disabled = false;
+  notificationButton.textContent = Notification.permission === "granted" ? "Alerts Enabled" : "Enable Alerts";
+}
+
+function scanNotifications() {
+  if (!("Notification" in window) || Notification.permission !== "granted") {
+    return;
+  }
+  const today = todayIso();
+  const now = new Date();
+
+  state.todos
+    .filter((todo) => !todo.done && todo.dueDate && todo.dueDate <= today)
+    .forEach((todo) => {
+      const key = `todo:${todo.id}:${todo.dueDate}`;
+      if (state.notified.includes(key)) {
+        return;
+      }
+      const title = todo.dueDate < today ? "Overdue task" : "Task due today";
+      new Notification(title, { body: todo.title });
+      state.notified.push(key);
+    });
+
+  state.plans
+    .filter((plan) => plan.planDate === today && plan.timeLabel)
+    .forEach((plan) => {
+      const key = `plan:${plan.id}:${plan.timeLabel}`;
+      if (state.notified.includes(key)) {
+        return;
+      }
+      const [hour, minute] = plan.timeLabel.split(":").map(Number);
+      const scheduled = new Date(now);
+      scheduled.setHours(hour || 0, minute || 0, 0, 0);
+      const diffMinutes = Math.round((scheduled.getTime() - now.getTime()) / 60000);
+      if (diffMinutes < 0 || diffMinutes > 15) {
+        return;
+      }
+      new Notification("Upcoming plan", { body: `${plan.timeLabel} · ${plan.title}` });
+      state.notified.push(key);
+    });
+
+  saveNotifiedState();
+}

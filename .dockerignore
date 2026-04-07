@@ -1,0 +1,6 @@
+node_modules
+dist-electron
+native-web
+data
+__pycache__
+ios

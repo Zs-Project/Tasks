@@ -1,0 +1,10 @@
+data/
+native-web/
+node_modules/
+build/
+dist/
+dist-electron/
+release/
+.vercel/
+*.log
+__pycache__/
