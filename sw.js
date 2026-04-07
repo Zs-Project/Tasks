@@ -1,4 +1,4 @@
-const CACHE_NAME = "planboard-shell-v7";
+const CACHE_NAME = "planboard-shell-v8";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -34,6 +34,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  const respondNetworkFirst = () =>
+    fetch(event.request)
+      .then((response) => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return response;
+      })
+      .catch(() => caches.match(event.request));
+
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
@@ -47,17 +60,5 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const networkPromise = fetch(event.request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        })
-        .catch(() => cached);
-
-      return cached || networkPromise;
-    })
-  );
+  event.respondWith(respondNetworkFirst());
 });
