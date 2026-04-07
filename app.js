@@ -286,7 +286,8 @@ function bindEvents() {
 
   document.querySelector("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     try {
       setAuthMessage("Signing in...");
       const payload = await api("/auth/login", {
@@ -297,7 +298,7 @@ function bindEvents() {
         },
       });
       completeAuth(payload, "Signed in.");
-      event.currentTarget.reset();
+      form.reset();
     } catch (error) {
       setAuthMessage(error.message, true);
     }
@@ -305,7 +306,8 @@ function bindEvents() {
 
   document.querySelector("#registerForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     try {
       setAuthMessage("Creating account...");
       const payload = await api("/auth/register", {
@@ -317,7 +319,7 @@ function bindEvents() {
         },
       });
       completeAuth(payload, "Account created.");
-      event.currentTarget.reset();
+      form.reset();
     } catch (error) {
       setAuthMessage(error.message, true);
     }
@@ -384,7 +386,8 @@ function bindEvents() {
 
   document.querySelector("#taskComposerForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     try {
       const editingId = taskEditorId.value;
       setStatus(editingId ? "Updating task..." : "Adding task...");
@@ -412,7 +415,7 @@ function bindEvents() {
         state.detailDraft = cloneTodoDraft(hydrated);
         state.detailDirty = false;
       }
-      event.currentTarget.reset();
+      form.reset();
       taskEditorId.value = "";
       taskSubmitButton.textContent = "Add Task";
       todoLaneInput.value = "ideas";
@@ -450,7 +453,8 @@ function bindEvents() {
 
   document.querySelector("#planComposerForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     try {
       const editingId = planEditorId.value;
       setStatus(editingId ? "Updating plan..." : "Adding plan...");
@@ -469,7 +473,7 @@ function bindEvents() {
         state.plans.push(payload.plan);
       }
       state.lastSyncedAt = Date.now();
-      event.currentTarget.reset();
+      form.reset();
       planEditorId.value = "";
       planSubmitButton.textContent = "Add Plan";
       renderSidebar();
