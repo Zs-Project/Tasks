@@ -3,6 +3,8 @@
   const FIREBASE_SDK_VERSION = config.FIREBASE_SDK_VERSION || "12.4.0";
   const LANE_SET = new Set(["ideas", "month", "week", "today", "done"]);
   const PRIORITY_SET = new Set(["low", "medium", "high"]);
+  const DEFAULT_DAILY_RESET_AFTER_DAYS = 7;
+  const DAILY_RESET_OPTIONS = new Set([0, 1, 3, 7, 14, 30]);
   const PORTFOLIO_TYPE_SET = new Set(["project", "competition", "course"]);
   const PORTFOLIO_STATUS_SET = new Set(["planned", "active", "completed"]);
   const PORTFOLIO_STATUS_MODE_SET = new Set(["auto", "manual"]);
@@ -506,6 +508,7 @@
       daily: Boolean(data.daily),
       dailyCompletedOn: data.dailyCompletedOn ? String(data.dailyCompletedOn) : null,
       streak: Number.isFinite(Number(data.streak)) ? Number(data.streak) : 0,
+      dailyResetAfterDays: normalizeDailyResetAfterDays(data.dailyResetAfterDays),
       projectId: String(data.projectId || ""),
       projectTitle: String(data.projectTitle || ""),
       weeklyDays: normalizeWeeklyDays(data.weeklyDays),
@@ -513,6 +516,11 @@
       createdAt: String(data.createdAt || ""),
       updatedAt: String(data.updatedAt || ""),
     };
+  }
+
+  function normalizeDailyResetAfterDays(value) {
+    const days = Number(value || DEFAULT_DAILY_RESET_AFTER_DAYS);
+    return Number.isInteger(days) && DAILY_RESET_OPTIONS.has(days) ? days : DEFAULT_DAILY_RESET_AFTER_DAYS;
   }
 
   function timestampTextOrNow(value) {
@@ -546,6 +554,7 @@
       daily: Boolean(data.daily),
       dailyCompletedOn: dailyCompletedOn && isValidDate(dailyCompletedOn) ? dailyCompletedOn : null,
       streak: Number.isInteger(streak) && streak >= 0 && streak <= 100000 ? streak : 0,
+      dailyResetAfterDays: normalizeDailyResetAfterDays(data.dailyResetAfterDays),
       projectId: String(data.projectId || "").trim().slice(0, 160),
       projectTitle: String(data.projectTitle || "").trim().slice(0, 160),
       weeklyDays: normalizeWeeklyDays(data.weeklyDays),
@@ -1036,6 +1045,7 @@
     const daily = Boolean(body.daily);
     const dailyCompletedOn = body.dailyCompletedOn == null ? null : normalizeDateInput(body.dailyCompletedOn) || null;
     const streak = Number(body.streak || 0);
+    const dailyResetAfterDays = normalizeDailyResetAfterDays(body.dailyResetAfterDays);
     const finalLane = daily ? "today" : lane;
     const done = daily ? false : Boolean(body.done);
     const subtasks = normalizeSubtasks(body.subtasks);
@@ -1055,6 +1065,9 @@
     }
     if (!Number.isInteger(streak) || streak < 0 || streak > 100000) {
       throw createError("Streak is invalid.", 400);
+    }
+    if (!DAILY_RESET_OPTIONS.has(dailyResetAfterDays)) {
+      throw createError("Daily reset interval is invalid.", 400);
     }
     if (!PRIORITY_SET.has(priority)) {
       throw createError("Priority is invalid.", 400);
@@ -1079,6 +1092,7 @@
       daily,
       dailyCompletedOn,
       streak,
+      dailyResetAfterDays,
       projectId,
       projectTitle,
       weeklyDays,
@@ -1100,6 +1114,7 @@
     const daily = Boolean(body.daily);
     const dailyCompletedOn = body.dailyCompletedOn == null ? null : normalizeDateInput(body.dailyCompletedOn) || null;
     const streak = Number(body.streak || 0);
+    const dailyResetAfterDays = normalizeDailyResetAfterDays(body.dailyResetAfterDays);
     const finalLane = daily ? "today" : lane;
     const done = daily ? false : Boolean(body.done);
     const subtasks = normalizeSubtasks(body.subtasks);
@@ -1119,6 +1134,9 @@
     }
     if (!Number.isInteger(streak) || streak < 0 || streak > 100000) {
       throw createError("Streak is invalid.", 400);
+    }
+    if (!DAILY_RESET_OPTIONS.has(dailyResetAfterDays)) {
+      throw createError("Daily reset interval is invalid.", 400);
     }
     if (!PRIORITY_SET.has(priority)) {
       throw createError("Priority is invalid.", 400);
@@ -1147,6 +1165,7 @@
       daily,
       dailyCompletedOn,
       streak,
+      dailyResetAfterDays,
       projectId,
       projectTitle,
       weeklyDays,

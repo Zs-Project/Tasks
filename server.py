@@ -24,6 +24,8 @@ MAX_NAME_LENGTH = 80
 MAX_TITLE_LENGTH = 160
 MAX_DETAILS_LENGTH = 5000
 MAX_NOTE_LENGTH = 10000
+DEFAULT_DAILY_RESET_AFTER_DAYS = 7
+DAILY_RESET_OPTIONS = {0, 1, 3, 7, 14, 30}
 DEFAULT_ALLOWED_ORIGINS = os.getenv(
     "PLANBOARD_ALLOWED_ORIGINS",
     "http://127.0.0.1:4173,http://localhost:4173",
@@ -123,6 +125,7 @@ def init_db() -> None:
                 daily INTEGER NOT NULL DEFAULT 0,
                 daily_completed_on TEXT,
                 streak INTEGER NOT NULL DEFAULT 0,
+                daily_reset_after_days INTEGER NOT NULL DEFAULT 7,
                 project_id TEXT NOT NULL DEFAULT '',
                 project_title TEXT NOT NULL DEFAULT '',
                 weekly_days TEXT NOT NULL DEFAULT '[]',
@@ -221,6 +224,10 @@ def init_db() -> None:
             if "streak" not in todo_columns:
                 connection.execute(
                     "ALTER TABLE todos ADD COLUMN streak INTEGER NOT NULL DEFAULT 0"
+                )
+            if "daily_reset_after_days" not in todo_columns:
+                connection.execute(
+                    "ALTER TABLE todos ADD COLUMN daily_reset_after_days INTEGER NOT NULL DEFAULT 7"
                 )
             if "project_id" not in todo_columns:
                 connection.execute(
@@ -346,6 +353,7 @@ def serialize_todo(row: sqlite3.Row) -> dict:
         "daily": bool(row["daily"]),
         "dailyCompletedOn": row["daily_completed_on"],
         "streak": row["streak"] if row["streak"] is not None else 0,
+        "dailyResetAfterDays": row_value(row, "daily_reset_after_days", DEFAULT_DAILY_RESET_AFTER_DAYS),
         "projectId": project_id,
         "projectTitle": project_title,
         "weeklyDays": weekly_days,
@@ -1556,6 +1564,12 @@ class PlanboardHandler(BaseHTTPRequestHandler):
             subtasks = normalize_subtasks(payload.get("subtasks"))
             sort_order = normalize_sort_order(payload.get("sortOrder"), 0)
             streak = int(payload.get("streak") or 0)
+            raw_daily_reset_after_days = payload.get("dailyResetAfterDays")
+            daily_reset_after_days = int(
+                DEFAULT_DAILY_RESET_AFTER_DAYS
+                if raw_daily_reset_after_days is None or raw_daily_reset_after_days == ""
+                else raw_daily_reset_after_days
+            )
         except ValueError as error:
             self.respond_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
             return
@@ -1566,6 +1580,9 @@ class PlanboardHandler(BaseHTTPRequestHandler):
             return
         if streak < 0 or streak > 100000:
             self.respond_json({"error": "Streak is invalid."}, HTTPStatus.BAD_REQUEST)
+            return
+        if daily_reset_after_days not in DAILY_RESET_OPTIONS:
+            self.respond_json({"error": "Daily reset interval is invalid."}, HTTPStatus.BAD_REQUEST)
             return
         if len(title) < 2:
             self.respond_json({"error": "Task title is too short."}, HTTPStatus.BAD_REQUEST)
@@ -1596,8 +1613,8 @@ class PlanboardHandler(BaseHTTPRequestHandler):
             final_sort_order = sort_order if sort_order else self.next_sort_order(connection, user["id"], lane)
             connection.execute(
                 """
-                INSERT INTO todos (id, user_id, title, details, subtasks, due_date, lane, sort_order, priority, done, daily, daily_completed_on, streak, project_id, project_title, weekly_days, missed, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO todos (id, user_id, title, details, subtasks, due_date, lane, sort_order, priority, done, daily, daily_completed_on, streak, daily_reset_after_days, project_id, project_title, weekly_days, missed, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     todo_id,
@@ -1612,6 +1629,7 @@ class PlanboardHandler(BaseHTTPRequestHandler):
                     daily,
                     daily_completed_on,
                     streak,
+                    daily_reset_after_days,
                     project_id,
                     project_title,
                     json.dumps(weekly_days),
@@ -1645,6 +1663,12 @@ class PlanboardHandler(BaseHTTPRequestHandler):
             subtasks = normalize_subtasks(payload.get("subtasks"))
             sort_order = normalize_sort_order(payload.get("sortOrder"), 0)
             streak = int(payload.get("streak") or 0)
+            raw_daily_reset_after_days = payload.get("dailyResetAfterDays")
+            daily_reset_after_days = int(
+                DEFAULT_DAILY_RESET_AFTER_DAYS
+                if raw_daily_reset_after_days is None or raw_daily_reset_after_days == ""
+                else raw_daily_reset_after_days
+            )
         except ValueError as error:
             self.respond_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
             return
@@ -1656,6 +1680,9 @@ class PlanboardHandler(BaseHTTPRequestHandler):
             return
         if streak < 0 or streak > 100000:
             self.respond_json({"error": "Streak is invalid."}, HTTPStatus.BAD_REQUEST)
+            return
+        if daily_reset_after_days not in DAILY_RESET_OPTIONS:
+            self.respond_json({"error": "Daily reset interval is invalid."}, HTTPStatus.BAD_REQUEST)
             return
         if len(title) < 2:
             self.respond_json({"error": "Task title is too short."}, HTTPStatus.BAD_REQUEST)
@@ -1684,7 +1711,7 @@ class PlanboardHandler(BaseHTTPRequestHandler):
             connection.execute(
                 """
                 UPDATE todos
-                SET title = ?, details = ?, subtasks = ?, due_date = ?, lane = ?, sort_order = ?, priority = ?, done = ?, daily = ?, daily_completed_on = ?, streak = ?, project_id = ?, project_title = ?, weekly_days = ?, missed = ?, updated_at = ?
+                SET title = ?, details = ?, subtasks = ?, due_date = ?, lane = ?, sort_order = ?, priority = ?, done = ?, daily = ?, daily_completed_on = ?, streak = ?, daily_reset_after_days = ?, project_id = ?, project_title = ?, weekly_days = ?, missed = ?, updated_at = ?
                 WHERE id = ? AND user_id = ?
                 """,
                 (
@@ -1699,6 +1726,7 @@ class PlanboardHandler(BaseHTTPRequestHandler):
                     daily,
                     daily_completed_on,
                     streak,
+                    daily_reset_after_days,
                     project_id,
                     project_title,
                     json.dumps(weekly_days),

@@ -141,6 +141,7 @@ class PlanboardServerTest(unittest.TestCase):
                 "daily": True,
                 "dailyCompletedOn": "2026-05-01",
                 "streak": 3,
+                "dailyResetAfterDays": 14,
             },
             token=token,
         )
@@ -150,7 +151,20 @@ class PlanboardServerTest(unittest.TestCase):
         self.assertEqual(payload["todo"]["lane"], "today")
         self.assertEqual(payload["todo"]["dailyCompletedOn"], "2026-05-01")
         self.assertEqual(payload["todo"]["streak"], 3)
+        self.assertEqual(payload["todo"]["dailyResetAfterDays"], 14)
         todo_id = payload["todo"]["id"]
+
+        status, _, payload = self.request(
+            "PUT",
+            f"/api/todos/{todo_id}",
+            {
+                **payload["todo"],
+                "dailyResetAfterDays": 0,
+            },
+            token=token,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(payload["todo"]["dailyResetAfterDays"], 0)
 
         status, _, payload = self.request("PUT", f"/api/todos/{todo_id}/lane/done", token=token)
         self.assertEqual(status, HTTPStatus.BAD_REQUEST)

@@ -1,4 +1,4 @@
-﻿const APP_CONFIG = window.__PLANBOARD_CONFIG__ || {};
+const APP_CONFIG = window.__PLANBOARD_CONFIG__ || {};
 const DATA_SOURCE = APP_CONFIG.DATA_SOURCE || "rest";
 const PLANBOARD_DOMAIN = window.PlanboardDomain || {};
 const PLANNER_UTILS = window.PlannerUtils || {};
@@ -32,6 +32,8 @@ const WEEKLY_PROJECTS_KEY = "planner-weekly-projects";
 const DEFAULT_THEME_KEY = "planboard-default-theme";
 const DEFAULT_THEME = "aurora";
 const THEMES = [DEFAULT_THEME];
+const DEFAULT_DAILY_RESET_AFTER_DAYS = PLANBOARD_DOMAIN.DEFAULT_DAILY_RESET_AFTER_DAYS || 7;
+const DAILY_RESET_OPTIONS = PLANBOARD_DOMAIN.DAILY_RESET_OPTIONS || [1, 3, 7, 14, 30, 0];
 const LANES = PLANBOARD_DOMAIN.LANES || ["ideas", "month", "week", "today", "done"];
 const BOARD_LANES = ["ideas", "month", "daily", "done"];
 const LANE_PREFIX = PLANBOARD_DOMAIN.LANE_PREFIX || /^\[\[lane:(ideas|month|week|today|done)\]\]\s*/i;
@@ -92,6 +94,7 @@ const weeklyFocusLabel = document.querySelector("#weeklyFocusLabel");
 const weeklyProgressLabel = document.querySelector("#weeklyProgressLabel");
 const weeklyProgressBar = document.querySelector("#weeklyProgressBar");
 const weeklyPlannerPage = document.querySelector("#weeklyPlannerPage");
+const weeklyTodaySummary = document.querySelector("#weeklyTodaySummary");
 const weeklyDays = document.querySelector("#weeklyDays");
 const weeklyProgress = document.querySelector("#weeklyProgress");
 const weeklyBacklog = document.querySelector("#weeklyBacklog");
@@ -112,6 +115,7 @@ const weeklyClearArchiveButton = document.querySelector("#weeklyClearArchiveButt
 const weeklyArchiveList = document.querySelector("#weeklyArchiveList");
 const weeklyStatsPanel = document.querySelector("#weeklyStatsPanel");
 const weeklyStatsGrid = document.querySelector("#weeklyStatsGrid");
+const weeklyDailyStats = document.querySelector("#weeklyDailyStats");
 const weeklyWeekdayStats = document.querySelector("#weeklyWeekdayStats");
 const calendarSelectedDateLabel = document.querySelector("#calendarSelectedDateLabel");
 const calendarSelectedDateMeta = document.querySelector("#calendarSelectedDateMeta");
@@ -150,6 +154,8 @@ const todoLaneInput = document.querySelector("#todoLaneInput");
 const todoPriorityInput = document.querySelector("#todoPriorityInput");
 const todoDueDateInput = document.querySelector("#todoDueDateInput");
 const todoDailyInput = document.querySelector("#todoDailyInput");
+const todoDailyResetField = document.querySelector("#todoDailyResetField");
+const todoDailyResetInput = document.querySelector("#todoDailyResetInput");
 const todoTitleInput = document.querySelector("#todoTitleInput");
 const todoProjectInput = document.querySelector("#todoProjectInput");
 const planTitleInput = document.querySelector("#planTitleInput");
@@ -191,6 +197,8 @@ const detailLaneInput = document.querySelector("#detailLaneInput");
 const detailPriorityInput = document.querySelector("#detailPriorityInput");
 const detailDueDateInput = document.querySelector("#detailDueDateInput");
 const detailDailyInput = document.querySelector("#detailDailyInput");
+const detailDailyResetField = document.querySelector("#detailDailyResetField");
+const detailDailyResetInput = document.querySelector("#detailDailyResetInput");
 const detailSubtaskList = document.querySelector("#detailSubtaskList");
 const detailSubtaskMeta = document.querySelector("#detailSubtaskMeta");
 const detailSubtaskInput = document.querySelector("#detailSubtaskInput");
@@ -673,6 +681,7 @@ function bindEvents() {
     if (todoLaneInput.value === "daily") {
       todoDailyInput.checked = true;
     }
+    syncTaskDailyResetControls();
     syncTaskDateByLane();
   });
   todoDailyInput.addEventListener("change", () => {
@@ -681,6 +690,7 @@ function bindEvents() {
     } else if (todoLaneInput.value === "daily") {
       todoLaneInput.value = "";
     }
+    syncTaskDailyResetControls();
   });
 
   Object.entries(filterButtons).forEach(([mode, button]) => {
@@ -906,6 +916,7 @@ function bindEvents() {
           daily: isDaily,
           dailyCompletedOn: editingId ? currentTaskDailyMeta(editingId).dailyCompletedOn : null,
           streak: editingId ? currentTaskDailyMeta(editingId).streak : 0,
+          dailyResetAfterDays: isDaily ? normalizeDailyResetAfterDays(formData.get("dailyResetAfterDays")) : DEFAULT_DAILY_RESET_AFTER_DAYS,
         }),
       });
       const hydrated = hydrateTodoFromServer(payload.todo);
@@ -922,6 +933,8 @@ function bindEvents() {
       todoPriorityInput.value = "medium";
       todoDueDateInput.value = "";
       todoDailyInput.checked = false;
+      todoDailyResetInput.value = String(DEFAULT_DAILY_RESET_AFTER_DAYS);
+      syncTaskDailyResetControls();
       todoProjectInput.value = "";
       closeComposer();
       render();
@@ -1188,9 +1201,14 @@ function bindEvents() {
     const patch = { daily: detailDailyInput.checked };
     if (detailDailyInput.checked) {
       patch.lane = "today";
+      patch.dailyResetAfterDays = normalizeDailyResetAfterDays(detailDailyResetInput.value);
       detailLaneInput.value = "today";
     }
+    syncDetailDailyResetControls(patch.daily ?? state.detailDraft?.daily);
     updateDetailDraft(patch);
+  });
+  detailDailyResetInput.addEventListener("change", () => {
+    updateDetailDraft({ dailyResetAfterDays: normalizeDailyResetAfterDays(detailDailyResetInput.value) });
   });
   addDetailSubtaskButton.addEventListener("click", addDetailSubtask);
   toggleCompletedSubtasksButton.addEventListener("click", () => {
@@ -1253,6 +1271,8 @@ function openComposer(tab, options = {}) {
     todoDueDateInput.value = options.dueDate || (shouldPrefillDate ? state.selectedDate : "");
     todoLaneInput.value = options.lane || "";
     todoDailyInput.checked = false;
+    todoDailyResetInput.value = String(DEFAULT_DAILY_RESET_AFTER_DAYS);
+    syncTaskDailyResetControls();
     if (options.projectTitle) {
       renderTaskProjectOptions(options.projectTitle);
       todoProjectInput.value = options.projectTitle;
@@ -1532,6 +1552,8 @@ function renderTaskDetail() {
     detailTaskId.value = "";
     detailLaneInput.disabled = false;
     detailDailyInput.checked = false;
+    detailDailyResetInput.value = String(DEFAULT_DAILY_RESET_AFTER_DAYS);
+    syncDetailDailyResetControls(false);
     detailSubtaskList.innerHTML = "";
     detailSubtaskMeta.textContent = "0 items";
     return;
@@ -1549,6 +1571,8 @@ function renderTaskDetail() {
   detailPriorityInput.value = draft.priority || "medium";
   detailDueDateInput.value = draft.dueDate || "";
   detailDailyInput.checked = Boolean(draft.daily);
+  detailDailyResetInput.value = String(normalizeDailyResetAfterDays(draft.dailyResetAfterDays));
+  syncDetailDailyResetControls(draft.daily);
   syncTaskDetailChrome(draft);
   renderDetailSubtasks(draft.subtasks || []);
 }
@@ -1747,7 +1771,7 @@ function renderFilterState(visibleCount) {
     );
   }
   filterStateLabel.textContent = parts.length
-    ? `Showing ${visibleCount} of ${totalCount} tasks · ${parts.join(" · ")}`
+    ? `Showing ${visibleCount} of ${totalCount} tasks - ${parts.join(" - ")}`
     : `${visibleCount} task${visibleCount === 1 ? "" : "s"} visible`;
 }
 
@@ -1916,7 +1940,7 @@ function boardTaskTitle(todo) {
 
 function boardTaskDetails(todo) {
   if (todo.projectTitle) {
-    return [todo.title, todo.details].filter(Boolean).join(" · ");
+    return [todo.title, todo.details].filter(Boolean).join(" - ");
   }
   return todo.details || "";
 }
@@ -2088,6 +2112,7 @@ function renderWeekly() {
       : `Focusing <strong>${focusDay}</strong>${isToday ? " (today)" : ""}`;
   }
   weeklyProgressBar.className = `progress-fill ${percentClass(progress)}`;
+  renderWeeklyTodaySummary(weeklyTasks, today);
   weeklyDays.innerHTML = "";
 
   const dayTabs = document.createElement("div");
@@ -2149,7 +2174,7 @@ function renderWeekly() {
     if (!daySlots.length) {
       const empty = document.createElement("p");
       empty.className = "weekly-day__empty";
-      empty.textContent = "—";
+      empty.textContent = "-";
       list.appendChild(empty);
     } else {
       daySlots.forEach((slot) => list.appendChild(renderWeeklySlot(slot)));
@@ -2231,6 +2256,96 @@ function renderWeekly() {
   renderWeeklyInsights();
 }
 
+function renderWeeklyTodaySummary(weeklyTasks, today = todayIso()) {
+  if (!weeklyTodaySummary) return;
+  const todayDate = new Date(`${today}T00:00:00`);
+  const todaySlots = weeklySlotsForDay(weeklyTasks, today).filter((slot) => !slot.done);
+  const dailyTodos = state.todos
+    .filter((todo) => todo.daily && !isDailyCompletedToday(todo))
+    .sort(compareCreatedDesc);
+  const deadlines = state.todos
+    .filter((todo) => !todo.daily && todo.dueDate === today && !isTodoEffectivelyDone(todo))
+    .sort(comparePriority);
+  const overdue = state.todos
+    .filter((todo) => !todo.daily && todo.dueDate && todo.dueDate < today && !isTodoEffectivelyDone(todo))
+    .sort(compareDueDate)
+    .slice(0, 6);
+  const cards = [
+    {
+      key: "daily",
+      label: "Daily",
+      value: dailyTodos.length,
+      hint: dailyTodos.length ? "Momentum waiting" : "All daily tasks done",
+      items: dailyTodos.slice(0, 4).map((todo) => ({ title: todo.title, meta: `Momentum ${Number(todo.streak || 0)}`, todoId: todo.id })),
+    },
+    {
+      key: "weekly",
+      label: "This day",
+      value: todaySlots.length,
+      hint: todaySlots.length ? "Weekly work for today" : "No weekly tasks today",
+      items: todaySlots.slice(0, 4).map((slot) => ({ title: slot.desc || slot.title, meta: slot.projectTitle || slot.title, todoId: slot.todoId })),
+    },
+    {
+      key: "deadline",
+      label: "Deadlines",
+      value: deadlines.length,
+      hint: deadlines.length ? "Due today" : "No deadline today",
+      items: deadlines.slice(0, 4).map((todo) => ({ title: todo.title, meta: todo.priority || "medium", todoId: todo.id })),
+    },
+    {
+      key: "overdue",
+      label: "Overdue",
+      value: overdue.length,
+      hint: overdue.length ? "Needs attention" : "Nothing overdue",
+      items: overdue.slice(0, 4).map((todo) => ({
+        title: todo.title,
+        meta: SHORT_DATE_FORMATTER.format(new Date(`${todo.dueDate}T00:00:00`)),
+        todoId: todo.id,
+      })),
+    },
+  ];
+  const totalOpen = cards.reduce((sum, card) => sum + card.value, 0);
+  weeklyTodaySummary.innerHTML = `
+    <div class="weekly-today-summary__heading">
+      <div>
+        <p class="eyebrow">Today review</p>
+        <h2>${new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(todayDate)}</h2>
+      </div>
+      <small>${totalOpen} open item${totalOpen === 1 ? "" : "s"}</small>
+    </div>
+    <div class="weekly-today-summary__grid"></div>
+  `;
+  const grid = weeklyTodaySummary.querySelector(".weekly-today-summary__grid");
+  cards.forEach((card) => {
+    const article = document.createElement("article");
+    article.className = `weekly-today-card weekly-today-card--${card.key}`;
+    article.innerHTML = `
+      <div class="weekly-today-card__top">
+        <span>${card.label}</span>
+        <strong>${card.value}</strong>
+      </div>
+      <p>${card.hint}</p>
+    `;
+    const list = document.createElement("div");
+    list.className = "weekly-today-card__items";
+    if (!card.items.length) {
+      const empty = document.createElement("small");
+      empty.textContent = "Clear.";
+      list.appendChild(empty);
+    } else {
+      card.items.forEach((item) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.innerHTML = `<span>${escapeHtml(item.title || "Untitled")}</span><small>${escapeHtml(item.meta || "")}</small>`;
+        button.addEventListener("click", () => openTaskDetail(item.todoId, { focusTitle: true }));
+        list.appendChild(button);
+      });
+    }
+    article.appendChild(list);
+    grid.appendChild(article);
+  });
+}
+
 function renderWeeklySlot(slot) {
   const card = document.createElement("article");
   card.className = "weekly-task weekly-task--slot";
@@ -2295,8 +2410,8 @@ function renderWeeklyTask(todo, contextDate = "") {
   const subtaskCount = (todo.subtasks || []).length;
   const doneSubtasks = (todo.subtasks || []).filter((item) => item.done).length;
   meta.textContent = todo.daily
-    ? `Daily · streak ${Number(todo.streak || 0)}`
-    : [todo.projectTitle, subtaskCount ? `${doneSubtasks}/${subtaskCount} subtasks` : todo.details || ""].filter(Boolean).join(" · ")
+    ? `Daily - momentum ${Number(todo.streak || 0)}`
+    : [todo.projectTitle, subtaskCount ? `${doneSubtasks}/${subtaskCount} subtasks` : todo.details || ""].filter(Boolean).join(" - ")
       || laneLabel(normalizeLane(todo));
   body.append(title, meta);
   let weeklySubtaskList = null;
@@ -2774,7 +2889,7 @@ function renderWeeklyAssignModal(force = false) {
         <p class="eyebrow">${escapeHtml(todo.projectTitle || "Task")}</p>
         <h2>${escapeHtml(todo.title)}</h2>
       </div>
-      <button type="button" class="weekly-assign-modal__close" aria-label="Close">×</button>
+      <button type="button" class="weekly-assign-modal__close" aria-label="Close">-</button>
     </div>
     <label class="weekly-assign-field">
       <span>Deadline</span>
@@ -2785,7 +2900,7 @@ function renderWeeklyAssignModal(force = false) {
       <small>${todo.dueDate ? `Due ${escapeHtml(todo.dueDate)}` : "No deadline set."}</small>
     </label>
     <div class="weekly-assign-subhead">
-      <span>Subtasks · <strong class="weekly-assign-subcount">0</strong></span>
+      <span>Subtasks - <strong class="weekly-assign-subcount">0</strong></span>
     </div>
     <div class="weekly-assign-days" role="group" aria-label="Days this task appears on"></div>
     <div class="weekly-assign-chunks"></div>
@@ -2926,7 +3041,7 @@ function renderWeeklyAssignChunk(chunk, iso) {
   row.dataset.done = chunk.done ? "true" : "false";
   row.innerHTML = `
     <textarea class="weekly-assign-chunk__text" rows="1" maxlength="160" placeholder="note (optional)">${escapeHtml(chunk.text || "")}</textarea>
-    <button type="button" class="weekly-assign-chunk__remove" aria-label="Remove chunk">×</button>
+    <button type="button" class="weekly-assign-chunk__remove" aria-label="Remove chunk">-</button>
   `;
   const textarea = row.querySelector("textarea");
   const resize = () => {
@@ -3139,7 +3254,7 @@ function renderWeeklyArchive() {
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "weekly-archive-item__remove";
-    remove.textContent = "×";
+    remove.textContent = "-";
     remove.setAttribute("aria-label", `Remove archived week ${week.label}`);
     remove.addEventListener("click", async () => {
       try {
@@ -3173,6 +3288,7 @@ function renderWeeklyStats() {
     ["Week streak", String(streak), "in a row at 50%+"],
     ["Weeks tracked", String(weeks.length), "all-time"],
   ].map(([label, value, hint]) => `<article class="weekly-stat-card"><strong>${value}</strong><span>${label}</span><small>${hint}</small></article>`).join("");
+  renderWeeklyDailyStats();
 
   const totals = Array.from({ length: 7 }, () => ({ done: 0, total: 0 }));
   weeks.forEach((week) => (week.days || []).forEach((day, index) => {
@@ -3223,7 +3339,7 @@ function renderWeeklyStats() {
     const label = document.createElement("span");
     const previous = activityWeeks[index - 1];
     const isNewMonth = !previous || previous.start.getMonth() !== week.start.getMonth();
-    label.textContent = isNewMonth ? `Tháng ${week.start.getMonth() + 1}` : "";
+    label.textContent = isNewMonth ? `Month ${week.start.getMonth() + 1}` : "";
     label.classList.toggle("is-month-start", isNewMonth && index > 0);
     monthLabels.appendChild(label);
   });
@@ -3290,6 +3406,72 @@ function renderWeeklyStats() {
   });
   weekday.appendChild(bars);
   weeklyWeekdayStats.appendChild(weekday);
+}
+
+function renderWeeklyDailyStats() {
+  if (!weeklyDailyStats) return;
+  const today = todayIso();
+  const dailyTodos = state.todos.filter((todo) => todo.daily);
+  const doneToday = dailyTodos.filter((todo) => isDailyCompletedToday(todo)).length;
+  const best = dailyTodos.reduce((top, todo) => Number(todo.streak || 0) > Number(top?.streak || 0) ? todo : top, null);
+  const atRisk = dailyTodos
+    .filter((todo) => !isDailyCompletedToday(todo) && Number(todo.streak || 0) > 0)
+    .map((todo) => {
+      const resetAfter = normalizeDailyResetAfterDays(todo.dailyResetAfterDays);
+      const elapsed = daysBetweenIso(todo.dailyCompletedOn, today);
+      const daysLeft = resetAfter === 0 ? Number.POSITIVE_INFINITY : resetAfter - elapsed;
+      return { todo, resetAfter, elapsed, daysLeft };
+    })
+    .filter((entry) => entry.resetAfter !== 0 && entry.daysLeft <= 2)
+    .sort((left, right) => left.daysLeft - right.daysLeft || Number(right.todo.streak || 0) - Number(left.todo.streak || 0));
+  const needsToday = dailyTodos
+    .filter((todo) => !isDailyCompletedToday(todo))
+    .sort((left, right) => Number(right.streak || 0) - Number(left.streak || 0));
+  weeklyDailyStats.innerHTML = `
+    <section class="weekly-daily-stats-card">
+      <div class="weekly-insight-heading">
+        <div>
+          <p class="eyebrow">Daily momentum</p>
+          <h3>${dailyTodos.length ? `${doneToday}/${dailyTodos.length} daily tasks done today.` : "Create daily tasks to build momentum."}</h3>
+        </div>
+        <span>${best ? `Best: ${escapeHtml(best.title)} - ${Number(best.streak || 0)}` : "No momentum yet"}</span>
+      </div>
+      <div class="weekly-daily-stats-grid">
+        <article><strong>${dailyTodos.length}</strong><span>Total daily</span></article>
+        <article><strong>${doneToday}</strong><span>Done today</span></article>
+        <article><strong>${best ? Number(best.streak || 0) : 0}</strong><span>Best momentum</span></article>
+        <article><strong>${atRisk.length}</strong><span>At risk</span></article>
+      </div>
+      <div class="weekly-daily-watchlist"></div>
+    </section>
+  `;
+  const watchlist = weeklyDailyStats.querySelector(".weekly-daily-watchlist");
+  const entries = atRisk.length ? atRisk : needsToday.slice(0, 4).map((todo) => ({
+    todo,
+    resetAfter: normalizeDailyResetAfterDays(todo.dailyResetAfterDays),
+    daysLeft: null,
+  }));
+  if (!entries.length) {
+    watchlist.innerHTML = "<p>Daily lane is clear today.</p>";
+    return;
+  }
+  entries.slice(0, 6).forEach((entry) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    const resetText = entry.resetAfter === 0
+      ? "never resets"
+      : entry.daysLeft == null
+        ? `resets after ${entry.resetAfter} day${entry.resetAfter === 1 ? "" : "s"}`
+        : entry.daysLeft < 0
+          ? "reset pending"
+          : `${entry.daysLeft} day${entry.daysLeft === 1 ? "" : "s"} left`;
+    button.innerHTML = `
+      <span>${escapeHtml(entry.todo.title || "Untitled")}</span>
+      <small>Momentum ${Number(entry.todo.streak || 0)} - ${resetText}</small>
+    `;
+    button.addEventListener("click", () => openTaskDetail(entry.todo.id, { focusTitle: true }));
+    watchlist.appendChild(button);
+  });
 }
 
 function contributionIntensity(done, total) {
@@ -3414,10 +3596,19 @@ async function endCurrentWeek() {
     tasks: archiveUnits.map((unit) => ({ title: unit.title, done: unit.done, projectId: unit.projectId || "", projectTitle: unit.projectTitle || "" })),
     createdAt: new Date().toISOString(),
   };
+  const undoSnapshot = {
+    archiveId: "",
+    todos: [],
+    weeklyProjects: [],
+    selectedDate: state.selectedDate,
+    weeklyPanel: state.weeklyPanel,
+    weeklyFocusDate: state.weeklyFocusDate,
+  };
   try {
     setStatus("Archiving week...");
     const archivePayload = await api("/weekly-archives", { method: "POST", body: archive });
     const savedArchive = hydrateWeeklyArchiveFromServer(archivePayload.weeklyArchive);
+    undoSnapshot.archiveId = savedArchive.id;
     state.weeklyArchives = sortWeeklyArchives([
       savedArchive,
       ...state.weeklyArchives.filter((entry) => entry.id !== savedArchive.id),
@@ -3437,6 +3628,8 @@ async function endCurrentWeek() {
           )
           .map((todo) => todo.id)
       );
+      undoSnapshot.todos = state.todos.filter((todo) => todoIdsToDelete.has(todo.id)).map(cloneTodoDraft);
+      undoSnapshot.weeklyProjects = weeklyProjectsToDelete.map((project) => ({ ...project }));
       await Promise.all([
         ...[...todoIdsToDelete].map((todoId) => api(`/todos/${todoId}`, { method: "DELETE" })),
         ...weeklyProjectsToDelete.map((project) => api(`/weekly-projects/${project.id}`, { method: "DELETE" })),
@@ -3446,10 +3639,12 @@ async function endCurrentWeek() {
       state.weeklyFocusDate = "";
       saveUiState();
       await refreshFromServer(false);
+      queueEndWeekUndo(undoSnapshot, "Week archived. Plan cleared.");
       setStatus("Week archived. Plan cleared.");
       return;
     }
 
+    undoSnapshot.todos = tasks.map(cloneTodoDraft);
     await Promise.all(tasks.map(async (todo) => {
       if (todo.done || todoSubtasksComplete(todo)) {
         const completedTodo = {
@@ -3508,6 +3703,7 @@ async function endCurrentWeek() {
     state.weeklyFocusDate = "";
     saveUiState();
     await refreshFromServer(false);
+    queueEndWeekUndo(undoSnapshot, "Week archived. Unfinished tasks moved forward.");
     setStatus("Week archived. Unfinished tasks moved forward.");
   } catch (error) {
     setStatus(`Could not archive the week: ${error.message}`, true);
@@ -3516,6 +3712,61 @@ async function endCurrentWeek() {
     endWeekInFlight = false;
     weeklyEndButton.disabled = false;
   }
+}
+
+function queueEndWeekUndo(snapshot, label) {
+  setUndoAction({
+    label: `${label} Undo?`,
+    rollback: async () => restoreEndWeekSnapshot(snapshot),
+    commit: async () => Promise.resolve(),
+    durationMs: 30000,
+  });
+}
+
+async function restoreEndWeekSnapshot(snapshot) {
+  if (!snapshot) return;
+  setStatus("Restoring week...");
+  if (snapshot.archiveId) {
+    try {
+      await api(`/weekly-archives/${snapshot.archiveId}`, { method: "DELETE" });
+    } catch {}
+  }
+  const projectIdMap = new Map();
+  const projectsByTitle = new Map(state.weeklyProjects.map((project) => [String(project.title || "").trim().toLowerCase(), project]));
+  for (const project of snapshot.weeklyProjects || []) {
+    const title = String(project.title || "").trim();
+    if (!title) continue;
+    const titleKey = title.toLowerCase();
+    let current = project.id ? state.weeklyProjects.find((entry) => entry.id === project.id) : null;
+    current = current || projectsByTitle.get(titleKey);
+    if (!current && !project.derived) {
+      const payload = await api("/weekly-projects", { method: "POST", body: { title } });
+      current = hydrateWeeklyProjectFromServer(payload.weeklyProject);
+      state.weeklyProjects = [...state.weeklyProjects, current];
+      projectsByTitle.set(titleKey, current);
+    }
+    if (current && project.id) {
+      projectIdMap.set(project.id, current.id);
+    }
+  }
+  for (const todo of snapshot.todos || []) {
+    const restored = cloneTodoDraft(todo);
+    if (restored.projectId && projectIdMap.has(restored.projectId)) {
+      restored.projectId = projectIdMap.get(restored.projectId);
+    }
+    const exists = state.todos.some((entry) => entry.id === restored.id);
+    if (exists) {
+      await api(`/todos/${restored.id}`, { method: "PUT", body: serializeTodoForApi(restored) });
+    } else {
+      await api("/todos", { method: "POST", body: serializeTodoForApi(restored) });
+    }
+  }
+  state.selectedDate = snapshot.selectedDate || state.selectedDate;
+  state.weeklyPanel = snapshot.weeklyPanel || "planner";
+  state.weeklyFocusDate = snapshot.weeklyFocusDate || "";
+  saveUiState();
+  await refreshFromServer(false);
+  setStatus("End week undone.");
 }
 
 function addDaysIso(iso, days) {
@@ -3945,6 +4196,8 @@ function renderTodoCard(todo) {
   card.classList.toggle("is-selected", todo.id === state.detailTaskId);
   card.classList.toggle("is-done", taskDone);
   card.classList.toggle("is-daily", Boolean(todo.daily));
+  card.classList.toggle("is-overdue", Boolean(!todo.daily && !taskDone && todo.dueDate && todo.dueDate < todayIso()));
+  card.classList.toggle("is-due-today", Boolean(!todo.daily && !taskDone && todo.dueDate === todayIso()));
   card.classList.toggle("is-draggable", canDragTodo(todo));
   card.draggable = canDragTodo(todo);
   checkbox.checked = taskDone;
@@ -3954,7 +4207,7 @@ function renderTodoCard(todo) {
   const subtaskCount = (todo.subtasks || []).length;
   const doneSubtasks = (todo.subtasks || []).filter((item) => item.done).length;
   subtaskMeta.textContent = subtaskCount ? `${doneSubtasks}/${subtaskCount} steps` : "";
-  streak.textContent = todo.daily ? `Streak ${Number(todo.streak || 0)}` : "";
+  streak.textContent = todo.daily ? `Momentum ${Number(todo.streak || 0)}` : "";
   priority.textContent = todo.priority || "";
   priority.className = "task-card__priority";
   if (todo.priority) {
@@ -4125,7 +4378,7 @@ function renderBoardProjectCard(group) {
   checkbox.checked = completion.complete;
   title.textContent = group.title || "Untitled project";
   details.textContent = childTitles.length
-    ? `${childTitles.slice(0, 3).join(" · ")}${childTitles.length > 3 ? ` · +${childTitles.length - 3} more` : ""}`
+    ? `${childTitles.slice(0, 3).join(" - ")}${childTitles.length > 3 ? ` - +${childTitles.length - 3} more` : ""}`
     : "No weekly tasks yet.";
   due.textContent = boardProjectLane(group) === "month" ? "This Month" : "";
   subtaskMeta.textContent = total ? `${done}/${total} tasks` : "";
@@ -4414,6 +4667,7 @@ function hydrateTodoFromServer(todo) {
     daily: Boolean(todo.daily),
     dailyCompletedOn: todo.dailyCompletedOn || null,
     streak: Number.isFinite(Number(todo.streak)) ? Number(todo.streak) : 0,
+    dailyResetAfterDays: normalizeDailyResetAfterDays(todo.dailyResetAfterDays),
   };
 }
 
@@ -4472,6 +4726,7 @@ function serializeTodoForApi(todo) {
     daily: Boolean(todo.daily),
     dailyCompletedOn: todo.dailyCompletedOn || null,
     streak: Number.isFinite(Number(todo.streak)) ? Number(todo.streak) : 0,
+    dailyResetAfterDays: normalizeDailyResetAfterDays(todo.dailyResetAfterDays),
     projectId: String(todo.projectId || "").replace(/[\[\]]/g, "").trim(),
     projectTitle: String(todo.projectTitle || "").replace(/[\[\]]/g, "").trim(),
     weeklyDays,
@@ -4486,9 +4741,10 @@ function resetMissedDailyStreak(todo) {
   if (!todo || !todo.daily || Number(todo.streak || 0) <= 0) {
     return todo;
   }
+  const resetAfterDays = normalizeDailyResetAfterDays(todo.dailyResetAfterDays);
+  if (resetAfterDays === 0) return todo;
   const today = todayIso();
-  const yesterday = previousIsoDate(today);
-  if (todo.dailyCompletedOn === today || todo.dailyCompletedOn === yesterday) {
+  if (daysBetweenIso(todo.dailyCompletedOn, today) <= resetAfterDays) {
     return todo;
   }
   return {
@@ -4737,6 +4993,7 @@ function currentTaskDailyMeta(id) {
   return {
     dailyCompletedOn: todo?.dailyCompletedOn || null,
     streak: Number(todo?.streak || 0),
+    dailyResetAfterDays: normalizeDailyResetAfterDays(todo?.dailyResetAfterDays),
   };
 }
 
@@ -4970,7 +5227,7 @@ function setUndoAction(action) {
   renderUndoToast();
   undoTimerId = window.setTimeout(() => {
     finalizePendingUndo(false);
-  }, 5000);
+  }, Number(action.durationMs || 5000));
 }
 
 function finalizePendingUndo(rollback) {
@@ -5187,6 +5444,35 @@ async function deleteTodo(todoId) {
   } catch (error) {
     setStatus(error.message, true);
   }
+}
+
+function normalizeDailyResetAfterDays(value) {
+  if (PLANBOARD_DOMAIN.normalizeDailyResetAfterDays) {
+    return PLANBOARD_DOMAIN.normalizeDailyResetAfterDays(value);
+  }
+  const days = Number.parseInt(value, 10);
+  return DAILY_RESET_OPTIONS.includes(days) ? days : DEFAULT_DAILY_RESET_AFTER_DAYS;
+}
+
+function daysBetweenIso(leftIso, rightIso) {
+  const left = new Date(`${leftIso}T00:00:00Z`);
+  const right = new Date(`${rightIso}T00:00:00Z`);
+  if (Number.isNaN(left.getTime()) || Number.isNaN(right.getTime())) return Number.POSITIVE_INFINITY;
+  return Math.floor((right.getTime() - left.getTime()) / 86400000);
+}
+
+function syncTaskDailyResetControls() {
+  const enabled = Boolean(todoDailyInput.checked || todoLaneInput.value === "daily");
+  todoDailyResetField.hidden = !enabled;
+  todoDailyResetInput.disabled = !enabled;
+  if (!todoDailyResetInput.value) todoDailyResetInput.value = String(DEFAULT_DAILY_RESET_AFTER_DAYS);
+}
+
+function syncDetailDailyResetControls(isDaily = state.detailDraft?.daily) {
+  const enabled = Boolean(isDaily);
+  detailDailyResetField.hidden = !enabled;
+  detailDailyResetInput.disabled = !enabled;
+  if (!detailDailyResetInput.value) detailDailyResetInput.value = String(DEFAULT_DAILY_RESET_AFTER_DAYS);
 }
 
 function syncTaskDateByLane() {
@@ -5492,7 +5778,14 @@ function completeDailyTodo(todo) {
       lane: "today",
       daily: true,
       dailyCompletedOn: vietnamTodayIso(),
-      streak: todo.dailyCompletedOn === previousIsoDate(vietnamTodayIso()) ? Number(todo.streak || 0) + 1 : 1,
+      dailyResetAfterDays: normalizeDailyResetAfterDays(todo.dailyResetAfterDays),
+      streak: (() => {
+        const completedOn = vietnamTodayIso();
+        const resetAfterDays = normalizeDailyResetAfterDays(todo.dailyResetAfterDays);
+        const gap = todo.dailyCompletedOn ? daysBetweenIso(todo.dailyCompletedOn, completedOn) : Number.POSITIVE_INFINITY;
+        const keepMomentum = resetAfterDays === 0 || (gap > 0 && gap <= resetAfterDays);
+        return todo.dailyCompletedOn === completedOn ? Number(todo.streak || 0) : keepMomentum ? Number(todo.streak || 0) + 1 : 1;
+      })(),
     };
 }
 
@@ -5586,7 +5879,7 @@ function scanNotifications() {
       if (diffMinutes < 0 || diffMinutes > 15) {
         return;
       }
-      new Notification("Upcoming plan", { body: `${plan.timeLabel} · ${plan.title}` });
+      new Notification("Upcoming plan", { body: `${plan.timeLabel} - ${plan.title}` });
       state.notified.push(key);
     });
 

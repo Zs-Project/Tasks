@@ -38,6 +38,11 @@
   --green: #38c978;
   --yellow: #f3bf4a;
   --danger: #ff7b68;
+  --semantic-daily: #4fd1c5;
+  --semantic-weekly: #9b8cff;
+  --semantic-deadline: #f5a524;
+  --semantic-overdue: #ff5d73;
+  --semantic-complete: #6ee7a8;
   --shadow: 0 26px 60px rgba(17, 22, 28, 0.28);
   --input-border: #3b4048;
   --input-bg: #363b42;
@@ -108,6 +113,11 @@ body {
   --green: #71d2a4;
   --yellow: #d8a85f;
   --danger: #ff7f8a;
+  --semantic-daily: #5eead4;
+  --semantic-weekly: #9b8cff;
+  --semantic-deadline: #f6ad55;
+  --semantic-overdue: #ff6b81;
+  --semantic-complete: #78e6ae;
   --shadow: 0 28px 70px rgba(0, 0, 0, 0.34);
   --input-border: rgba(151, 164, 209, 0.18);
   --input-bg: rgba(20, 27, 45, 0.9);
@@ -1594,6 +1604,10 @@ textarea {
   align-self: start;
 }
 
+.weekly-planner-page #weeklyTodaySummary {
+  grid-column: 1 / -1;
+}
+
 .weekly-planner-page #weeklyBacklog {
   grid-column: 1 / -1;
 }
@@ -1626,6 +1640,7 @@ textarea {
 }
 
 .weekly-projects,
+.weekly-today-summary,
 .weekly-insight-panel {
   display: grid;
   gap: 10px;
@@ -1633,6 +1648,101 @@ textarea {
   border: 1px solid var(--toolbar-border);
   border-radius: 6px;
   background: var(--toolbar-bg);
+}
+
+.weekly-today-summary {
+  gap: 14px;
+  padding: 18px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 18%, transparent), transparent 32%),
+    var(--toolbar-bg);
+}
+
+.weekly-today-summary__heading,
+.weekly-today-card__top,
+.weekly-insight-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.weekly-today-summary__heading h2 {
+  margin: 0;
+  font-size: clamp(1.25rem, 2vw, 1.8rem);
+}
+
+.weekly-today-summary__heading small {
+  color: var(--board-muted);
+  font-weight: 800;
+}
+
+.weekly-today-summary__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.weekly-today-card,
+.weekly-daily-stats-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--card-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card-bg) 86%, var(--window-bg));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
+}
+
+.weekly-today-card__top span,
+.weekly-daily-stats-grid span {
+  color: var(--board-muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.weekly-today-card__top strong {
+  color: var(--accent);
+  font-size: 1.65rem;
+}
+
+.weekly-today-card p,
+.weekly-daily-watchlist p {
+  margin: 0;
+  color: var(--board-muted);
+}
+
+.weekly-today-card__items,
+.weekly-daily-watchlist {
+  display: grid;
+  gap: 8px;
+}
+
+.weekly-today-card__items button,
+.weekly-daily-watchlist button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid var(--toolbar-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--toolbar-bg) 72%, transparent);
+  color: var(--board-text);
+  text-align: left;
+}
+
+.weekly-today-card__items button:hover,
+.weekly-daily-watchlist button:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.weekly-today-card__items small,
+.weekly-daily-watchlist small {
+  color: var(--board-muted);
 }
 
 .weekly-projects .weekly-backlog__heading {
@@ -1662,6 +1772,40 @@ textarea {
   display: grid;
   grid-template-columns: 1fr;
   gap: 9px;
+}
+
+.weekly-daily-stats {
+  display: grid;
+  gap: 12px;
+}
+
+.weekly-daily-stats-card {
+  margin-top: 4px;
+}
+
+.weekly-daily-stats-card .weekly-insight-heading span {
+  color: var(--board-muted);
+  font-weight: 800;
+}
+
+.weekly-daily-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.weekly-daily-stats-grid article {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--toolbar-border);
+  border-radius: 12px;
+  background: var(--window-bg);
+}
+
+.weekly-daily-stats-grid strong {
+  color: var(--accent);
+  font-size: 1.45rem;
 }
 
 .weekly-project-card,
@@ -5642,6 +5786,196 @@ textarea {
   padding-top: 2px;
 }
 
+/* Semantic color pass: keep the aurora theme, but make urgency and completion readable at a glance. */
+.weekly-today-card,
+.weekly-daily-stats-card,
+.task-card,
+.deadline-item,
+.weekly-task {
+  --state-color: var(--accent);
+}
+
+.weekly-today-card--daily {
+  --state-color: var(--semantic-daily);
+}
+
+.weekly-today-card--weekly {
+  --state-color: var(--semantic-weekly);
+}
+
+.weekly-today-card--deadline {
+  --state-color: var(--semantic-deadline);
+}
+
+.weekly-today-card--overdue {
+  --state-color: var(--semantic-overdue);
+}
+
+.weekly-today-card {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--state-color) 30%, var(--card-line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--state-color) 13%, transparent), transparent 42%),
+    color-mix(in srgb, var(--card-bg) 88%, var(--window-bg));
+}
+
+.weekly-today-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--state-color);
+  opacity: 0.9;
+}
+
+.weekly-today-card__top strong {
+  color: var(--state-color);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--state-color) 18%, transparent);
+}
+
+.weekly-today-card__items button {
+  border-color: color-mix(in srgb, var(--state-color) 16%, var(--toolbar-border));
+  background: color-mix(in srgb, var(--state-color) 7%, var(--toolbar-bg));
+}
+
+.weekly-today-card__items button:hover {
+  border-color: color-mix(in srgb, var(--state-color) 72%, var(--card-line));
+  color: var(--board-text-strong);
+}
+
+.weekly-daily-stats-card {
+  border-color: color-mix(in srgb, var(--semantic-daily) 24%, var(--card-line));
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--semantic-daily) 12%, transparent), transparent 34%),
+    color-mix(in srgb, var(--card-bg) 90%, var(--window-bg));
+}
+
+.weekly-daily-stats-grid article:nth-child(1) {
+  --state-color: var(--semantic-daily);
+}
+
+.weekly-daily-stats-grid article:nth-child(2),
+.weekly-daily-stats-grid article:nth-child(3) {
+  --state-color: var(--semantic-complete);
+}
+
+.weekly-daily-stats-grid article:nth-child(4) {
+  --state-color: var(--semantic-deadline);
+}
+
+.weekly-daily-stats-grid article {
+  border-color: color-mix(in srgb, var(--state-color) 20%, var(--toolbar-border));
+  background: color-mix(in srgb, var(--state-color) 7%, var(--window-bg));
+}
+
+.weekly-daily-stats-grid strong {
+  color: var(--state-color);
+}
+
+.weekly-daily-watchlist button {
+  border-color: color-mix(in srgb, var(--semantic-deadline) 16%, var(--toolbar-border));
+}
+
+.weekly-daily-watchlist button:hover {
+  border-color: var(--semantic-deadline);
+  background: color-mix(in srgb, var(--semantic-deadline) 10%, var(--toolbar-bg));
+}
+
+.task-card {
+  border-left: 3px solid color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.task-card.is-daily {
+  border-left-color: var(--semantic-daily);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--semantic-daily) 8%, transparent), transparent 36%),
+    var(--card-bg);
+}
+
+.task-card.is-due-today {
+  border-left-color: var(--semantic-deadline);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--semantic-deadline) 10%, transparent), transparent 38%),
+    var(--card-bg);
+}
+
+.task-card.is-overdue {
+  border-color: color-mix(in srgb, var(--semantic-overdue) 34%, var(--card-line));
+  border-left-color: var(--semantic-overdue);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--semantic-overdue) 13%, transparent), transparent 42%),
+    var(--card-bg);
+}
+
+.task-card.is-done {
+  border-left-color: var(--semantic-complete);
+}
+
+.task-card.is-overdue .task-card__due {
+  color: var(--semantic-overdue);
+  font-weight: 800;
+}
+
+.task-card.is-due-today .task-card__due {
+  color: var(--semantic-deadline);
+  font-weight: 800;
+}
+
+.task-card.is-daily .task-card__due,
+.task-card.is-daily .task-card__streak {
+  color: var(--semantic-daily);
+}
+
+.deadline-item {
+  border-left: 3px solid var(--accent);
+}
+
+.deadline-item.priority-high {
+  border-left-color: var(--semantic-overdue);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--semantic-overdue) 10%, transparent), transparent 38%),
+    var(--card-bg);
+}
+
+.deadline-item.priority-medium {
+  border-left-color: var(--semantic-deadline);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--semantic-deadline) 8%, transparent), transparent 38%),
+    var(--card-bg);
+}
+
+.deadline-item.priority-low {
+  border-left-color: var(--semantic-complete);
+}
+
+.window-shell[data-active-view="weekly"] .weekly-task.priority-high,
+.weekly-task.priority-high {
+  border-left-color: var(--semantic-overdue);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--semantic-overdue) 10%, transparent), transparent 44%),
+    #151d31;
+}
+
+.window-shell[data-active-view="weekly"] .weekly-task.priority-low,
+.weekly-task.priority-low {
+  border-left-color: var(--semantic-complete);
+}
+
+.window-shell[data-active-view="weekly"] .weekly-task.is-done,
+.weekly-task.is-done {
+  border-left-color: var(--semantic-complete);
+}
+
+.window-shell[data-active-view="weekly"] .weekly-task.is-missed,
+.weekly-task.is-missed {
+  border-color: color-mix(in srgb, var(--semantic-overdue) 48%, var(--card-line));
+  border-left-color: var(--semantic-overdue);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--semantic-overdue) 15%, transparent), transparent 44%),
+    #151d31;
+}
+
 /* Sidebar collapse performance: keep the movement short and isolate repaint work. */
 .window-shell {
   transition: grid-template-columns 100ms ease-out;
@@ -5672,5 +6006,24 @@ textarea {
 @media (max-width: 1180px) {
   .window-shell[data-active-view="weekly"] .weekly-planner-page {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .weekly-today-summary__heading,
+  .weekly-insight-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .weekly-today-summary__grid,
+  .weekly-daily-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .weekly-today-summary,
+  .weekly-daily-stats-card {
+    padding: 14px;
+    border-radius: 18px;
   }
 }

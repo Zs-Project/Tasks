@@ -3,6 +3,13 @@
   const LANE_PREFIX = /^\[\[lane:(ideas|month|week|today|done)\]\]\s*/i;
   const PRIORITIES = ["low", "medium", "high"];
   const PRIORITY_COUNTS = { high: 0, medium: 0, low: 0 };
+  const DEFAULT_DAILY_RESET_AFTER_DAYS = 7;
+  const DAILY_RESET_OPTIONS = [1, 3, 7, 14, 30, 0];
+
+  function normalizeDailyResetAfterDays(value) {
+    const days = Number.parseInt(value, 10);
+    return DAILY_RESET_OPTIONS.includes(days) ? days : DEFAULT_DAILY_RESET_AFTER_DAYS;
+  }
 
   function vietnamTodayIso(now = new Date()) {
     const date = now instanceof Date ? now : new Date(now);
@@ -15,21 +22,31 @@
     return date.toISOString().slice(0, 10);
   }
 
+  function daysBetweenIso(leftIso, rightIso) {
+    const left = new Date(`${leftIso}T00:00:00Z`);
+    const right = new Date(`${rightIso}T00:00:00Z`);
+    if (Number.isNaN(left.getTime()) || Number.isNaN(right.getTime())) return Number.POSITIVE_INFINITY;
+    return Math.floor((right.getTime() - left.getTime()) / 86400000);
+  }
+
   function isDailyCompletedToday(todo, now = new Date()) {
     return Boolean(todo && todo.daily && todo.dailyCompletedOn === vietnamTodayIso(now));
   }
 
   function completeDailyTodo(todo, now = new Date()) {
     const completedOn = vietnamTodayIso(now);
-    const yesterday = previousIsoDate(completedOn);
+    const resetAfterDays = normalizeDailyResetAfterDays(todo?.dailyResetAfterDays);
     const previousStreak = Number(todo.streak || 0);
+    const gap = todo.dailyCompletedOn ? daysBetweenIso(todo.dailyCompletedOn, completedOn) : Number.POSITIVE_INFINITY;
+    const keepMomentum = resetAfterDays === 0 || (gap > 0 && gap <= resetAfterDays);
     return {
       ...todo,
       done: false,
       lane: "today",
       daily: true,
       dailyCompletedOn: completedOn,
-      streak: todo.dailyCompletedOn === yesterday ? previousStreak + 1 : 1,
+      dailyResetAfterDays: resetAfterDays,
+      streak: todo.dailyCompletedOn === completedOn ? previousStreak : keepMomentum ? previousStreak + 1 : 1,
     };
   }
 
@@ -37,9 +54,10 @@
     if (!todo || !todo.daily || Number(todo.streak || 0) <= 0) {
       return false;
     }
+    const resetAfterDays = normalizeDailyResetAfterDays(todo.dailyResetAfterDays);
+    if (resetAfterDays === 0) return false;
     const today = vietnamTodayIso(now);
-    const yesterday = previousIsoDate(today);
-    return todo.dailyCompletedOn !== today && todo.dailyCompletedOn !== yesterday;
+    return daysBetweenIso(todo.dailyCompletedOn, today) > resetAfterDays;
   }
 
   function resetMissedDailyStreak(todo, now = new Date()) {
@@ -161,6 +179,9 @@
     inferStartingLane,
     deadlineTodosByDate,
     calendarPriorityCounts,
+    DAILY_RESET_OPTIONS,
+    DEFAULT_DAILY_RESET_AFTER_DAYS,
+    normalizeDailyResetAfterDays,
     weeklyTaskHasAssignments,
     todoHasUnassignedWeeklyWork,
     todoScheduledForWeek,

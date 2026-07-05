@@ -16,7 +16,7 @@ test("vietnamTodayIso resets at UTC+7 midnight", () => {
   assert.equal(domain.vietnamTodayIso(new Date("2026-05-01T17:00:00Z")), "2026-05-02");
 });
 
-test("daily completion uses Vietnam day and increments consecutive streaks", () => {
+test("daily completion uses Vietnam day and increments momentum within reset window", () => {
   const completed = domain.completeDailyTodo(
     {
       id: "daily-1",
@@ -37,7 +37,7 @@ test("daily completion uses Vietnam day and increments consecutive streaks", () 
   assert.equal(domain.isDailyCompletedToday(completed, new Date("2026-05-02T15:00:00Z")), true);
 });
 
-test("daily completion resets streak after a skipped day", () => {
+test("daily completion keeps momentum after skipped days within reset window", () => {
   const completed = domain.completeDailyTodo(
     {
       id: "daily-2",
@@ -49,10 +49,41 @@ test("daily completion resets streak after a skipped day", () => {
   );
 
   assert.equal(completed.dailyCompletedOn, "2026-05-02");
+  assert.equal(completed.streak, 9);
+});
+
+test("daily completion starts over after task reset window expires", () => {
+  const completed = domain.completeDailyTodo(
+    {
+      id: "daily-reset",
+      daily: true,
+      dailyCompletedOn: "2026-04-24",
+      streak: 8,
+      dailyResetAfterDays: 7,
+    },
+    new Date("2026-05-02T02:00:00Z")
+  );
+
+  assert.equal(completed.dailyCompletedOn, "2026-05-02");
   assert.equal(completed.streak, 1);
 });
 
-test("missed daily task resets visible streak after the next reset day", () => {
+test("daily completion honors per-task reset interval", () => {
+  const completed = domain.completeDailyTodo(
+    {
+      id: "daily-short-reset",
+      daily: true,
+      dailyCompletedOn: "2026-04-28",
+      streak: 8,
+      dailyResetAfterDays: 3,
+    },
+    new Date("2026-05-02T02:00:00Z")
+  );
+
+  assert.equal(completed.streak, 1);
+});
+
+test("missed daily task resets visible streak after the configured reset window", () => {
   const missed = domain.resetMissedDailyStreak(
     {
       id: "daily-3",
@@ -62,7 +93,7 @@ test("missed daily task resets visible streak after the next reset day", () => {
       dailyCompletedOn: "2026-05-18",
       streak: 5,
     },
-    new Date("2026-05-20T02:00:00Z")
+    new Date("2026-05-27T02:00:00Z")
   );
 
   assert.equal(missed.streak, 0);

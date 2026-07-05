@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -218,6 +218,7 @@
           <span id="weeklyProgressBar"></span>
         </div>
         <div id="weeklyPlannerPage" class="weekly-planner-page">
+          <section id="weeklyTodaySummary" class="weekly-today-summary" aria-live="polite"></section>
           <section id="weeklyProjects" class="weekly-projects">
             <div class="weekly-backlog__heading">
               <div>
@@ -267,6 +268,7 @@
             </div>
           </div>
           <div id="weeklyStatsGrid" class="weekly-stats-grid"></div>
+          <div id="weeklyDailyStats" class="weekly-daily-stats"></div>
           <div id="weeklyWeekdayStats" class="weekly-weekday-stats"></div>
         </section>
       </section>
@@ -459,6 +461,18 @@
           <span>Daily task</span>
         </label>
 
+        <label id="detailDailyResetField" class="field" hidden>
+          <span>Reset momentum after</span>
+          <select id="detailDailyResetInput">
+            <option value="1">1 missed day</option>
+            <option value="3">3 missed days</option>
+            <option value="7">7 missed days</option>
+            <option value="14">14 missed days</option>
+            <option value="30">30 missed days</option>
+            <option value="0">Never reset</option>
+          </select>
+        </label>
+
         <section class="task-detail__section">
           <div class="task-detail__section-header">
             <h3>Checklist</h3>
@@ -626,6 +640,17 @@
         <label class="check-field">
           <input id="todoDailyInput" name="daily" type="checkbox">
           <span>Daily task</span>
+        </label>
+        <label id="todoDailyResetField" class="field" hidden>
+          <span>Reset momentum after</span>
+          <select id="todoDailyResetInput" name="dailyResetAfterDays">
+            <option value="1">1 missed day</option>
+            <option value="3">3 missed days</option>
+            <option value="7">7 missed days</option>
+            <option value="14">14 missed days</option>
+            <option value="30">30 missed days</option>
+            <option value="0">Never reset</option>
+          </select>
         </label>
         <button id="taskSubmitButton" class="button button--primary" type="submit">Add Task</button>
       </form>
