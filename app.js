@@ -2276,7 +2276,7 @@ function renderWeeklyTodaySummary(weeklyTasks, today = todayIso()) {
       label: "Daily",
       value: dailyTodos.length,
       hint: dailyTodos.length ? "Momentum waiting" : "All daily tasks done",
-      items: dailyTodos.slice(0, 4).map((todo) => ({ title: todo.title, meta: `Momentum ${Number(todo.streak || 0)}`, todoId: todo.id })),
+      items: dailyTodos.slice(0, 4).map((todo) => ({ title: todo.title, meta: dailyMomentumLabel(todo), todoId: todo.id })),
     },
     {
       key: "weekly",
@@ -3434,7 +3434,7 @@ function renderWeeklyDailyStats() {
           <p class="eyebrow">Daily momentum</p>
           <h3>${dailyTodos.length ? `${doneToday}/${dailyTodos.length} daily tasks done today.` : "Create daily tasks to build momentum."}</h3>
         </div>
-        <span>${best ? `Best: ${escapeHtml(best.title)} - ${Number(best.streak || 0)}` : "No momentum yet"}</span>
+        <span>${best ? `Best: ${escapeHtml(best.title)} - ${dailyMomentumLabel(best)}` : "No momentum yet"}</span>
       </div>
       <div class="weekly-daily-stats-grid">
         <article><strong>${dailyTodos.length}</strong><span>Total daily</span></article>
@@ -3458,16 +3458,9 @@ function renderWeeklyDailyStats() {
   entries.slice(0, 6).forEach((entry) => {
     const button = document.createElement("button");
     button.type = "button";
-    const resetText = entry.resetAfter === 0
-      ? "never resets"
-      : entry.daysLeft == null
-        ? `resets after ${entry.resetAfter} day${entry.resetAfter === 1 ? "" : "s"}`
-        : entry.daysLeft < 0
-          ? "reset pending"
-          : `${entry.daysLeft} day${entry.daysLeft === 1 ? "" : "s"} left`;
     button.innerHTML = `
       <span>${escapeHtml(entry.todo.title || "Untitled")}</span>
-      <small>Momentum ${Number(entry.todo.streak || 0)} - ${resetText}</small>
+      <small>${escapeHtml(dailyMomentumLabel(entry.todo))}</small>
     `;
     button.addEventListener("click", () => openTaskDetail(entry.todo.id, { focusTitle: true }));
     watchlist.appendChild(button);
@@ -4207,7 +4200,7 @@ function renderTodoCard(todo) {
   const subtaskCount = (todo.subtasks || []).length;
   const doneSubtasks = (todo.subtasks || []).filter((item) => item.done).length;
   subtaskMeta.textContent = subtaskCount ? `${doneSubtasks}/${subtaskCount} steps` : "";
-  streak.textContent = todo.daily ? `Momentum ${Number(todo.streak || 0)}` : "";
+  streak.textContent = todo.daily ? dailyMomentumLabel(todo) : "";
   priority.textContent = todo.priority || "";
   priority.className = "task-card__priority";
   if (todo.priority) {
@@ -5767,6 +5760,30 @@ function isDailyCompletedToday(todo) {
   return PLANBOARD_DOMAIN.isDailyCompletedToday
     ? PLANBOARD_DOMAIN.isDailyCompletedToday(todo)
     : Boolean(todo && todo.daily && todo.dailyCompletedOn === vietnamTodayIso());
+}
+
+function dailyResetCountdownText(todo) {
+  if (PLANBOARD_DOMAIN.dailyResetCountdownText) {
+    return PLANBOARD_DOMAIN.dailyResetCountdownText(todo);
+  }
+  if (!todo || !todo.daily) return "";
+  const resetAfterDays = normalizeDailyResetAfterDays(todo.dailyResetAfterDays);
+  if (resetAfterDays === 0) return "never resets";
+  if (Number(todo.streak || 0) <= 0 || !todo.dailyCompletedOn) return "not started";
+  const elapsed = daysBetweenIso(todo.dailyCompletedOn, todayIso());
+  if (!Number.isFinite(elapsed) || elapsed < 0) return `${resetAfterDays}d window`;
+  const daysLeft = resetAfterDays - elapsed;
+  if (daysLeft < 0) return "reset pending";
+  if (daysLeft === 0) return "last day";
+  return `${daysLeft}d left`;
+}
+
+function dailyMomentumLabel(todo) {
+  if (PLANBOARD_DOMAIN.dailyMomentumLabel) {
+    return PLANBOARD_DOMAIN.dailyMomentumLabel(todo);
+  }
+  const countdown = dailyResetCountdownText(todo);
+  return countdown ? `Momentum ${Number(todo?.streak || 0)} - ${countdown}` : `Momentum ${Number(todo?.streak || 0)}`;
 }
 
 function completeDailyTodo(todo) {

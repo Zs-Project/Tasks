@@ -60,6 +60,25 @@
     return daysBetweenIso(todo.dailyCompletedOn, today) > resetAfterDays;
   }
 
+  function dailyResetCountdownText(todo, now = new Date()) {
+    if (!todo || !todo.daily) return "";
+    const resetAfterDays = normalizeDailyResetAfterDays(todo.dailyResetAfterDays);
+    if (resetAfterDays === 0) return "never resets";
+    if (Number(todo.streak || 0) <= 0 || !todo.dailyCompletedOn) return "not started";
+    const elapsed = daysBetweenIso(todo.dailyCompletedOn, vietnamTodayIso(now));
+    if (!Number.isFinite(elapsed) || elapsed < 0) return `${resetAfterDays}d window`;
+    const daysLeft = resetAfterDays - elapsed;
+    if (daysLeft < 0) return "reset pending";
+    if (daysLeft === 0) return "last day";
+    return `${daysLeft}d left`;
+  }
+
+  function dailyMomentumLabel(todo, now = new Date()) {
+    const momentum = Number(todo?.streak || 0);
+    const countdown = dailyResetCountdownText(todo, now);
+    return countdown ? `Momentum ${momentum} - ${countdown}` : `Momentum ${momentum}`;
+  }
+
   function resetMissedDailyStreak(todo, now = new Date()) {
     if (!shouldResetDailyStreak(todo, now)) {
       return todo;
@@ -175,6 +194,8 @@
     completeDailyTodo,
     shouldResetDailyStreak,
     resetMissedDailyStreak,
+    dailyResetCountdownText,
+    dailyMomentumLabel,
     isSameWeek,
     inferStartingLane,
     deadlineTodosByDate,

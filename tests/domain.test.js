@@ -102,6 +102,61 @@ test("missed daily task resets visible streak after the configured reset window"
   assert.equal(missed.lane, "today");
 });
 
+test("daily reset countdown explains when momentum will reset", () => {
+  assert.equal(
+    domain.dailyMomentumLabel(
+      {
+        id: "daily-countdown",
+        daily: true,
+        dailyCompletedOn: "2026-05-01",
+        streak: 5,
+        dailyResetAfterDays: 7,
+      },
+      new Date("2026-05-03T02:00:00Z")
+    ),
+    "Momentum 5 - 5d left"
+  );
+  assert.equal(
+    domain.dailyResetCountdownText(
+      {
+        id: "daily-last-day",
+        daily: true,
+        dailyCompletedOn: "2026-05-01",
+        streak: 5,
+        dailyResetAfterDays: 3,
+      },
+      new Date("2026-05-04T02:00:00Z")
+    ),
+    "last day"
+  );
+  assert.equal(
+    domain.dailyResetCountdownText(
+      {
+        id: "daily-pending",
+        daily: true,
+        dailyCompletedOn: "2026-05-01",
+        streak: 5,
+        dailyResetAfterDays: 3,
+      },
+      new Date("2026-05-05T02:00:00Z")
+    ),
+    "reset pending"
+  );
+  assert.equal(
+    domain.dailyResetCountdownText(
+      {
+        id: "daily-never",
+        daily: true,
+        dailyCompletedOn: "2026-05-01",
+        streak: 5,
+        dailyResetAfterDays: 0,
+      },
+      new Date("2026-06-01T02:00:00Z")
+    ),
+    "never resets"
+  );
+});
+
 test("daily task keeps streak during the day after completion", () => {
   const current = {
     id: "daily-4",
