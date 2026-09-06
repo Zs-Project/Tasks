@@ -3489,10 +3489,24 @@ select:focus {
 
 /* Main Board Layout Containment */
 .board {
-  max-width: 1560px;
+  max-width: none;
   width: 100%;
+  height: 100vh;
   box-sizing: border-box;
-  padding: 20px 28px 24px;
+  padding: 20px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 760px) {
+  .board {
+    height: auto !important;
+    min-height: unset !important;
+    overflow: visible !important;
+    padding: 10px 12px 18px !important;
+  }
 }
 
 /* Redesigned Contextual Top Header */
@@ -3726,19 +3740,27 @@ select:focus {
 /* Clean Kanban Grid */
 .columns {
   display: grid;
-  grid-template-columns: repeat(4, minmax(calc(240px * var(--ui-scale, 1)), 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: 1fr;
+  align-content: stretch;
+  align-items: stretch;
   gap: calc(16px * var(--ui-scale, 1));
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
-  overflow: auto;
-  padding-bottom: 24px;
+  height: 100%;
+  overflow: hidden;
+  padding-bottom: 4px;
 }
 
 .column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
   border-radius: 16px;
   background: rgba(16, 23, 40, 0.55);
   border: 1px solid rgba(140, 160, 220, 0.1);
-  padding: 14px 12px;
+  padding: 14px 12px 10px;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
@@ -3750,6 +3772,7 @@ select:focus {
   align-items: center;
   margin-bottom: 12px;
   padding: 0 4px;
+  flex-shrink: 0;
 }
 
 .column__header h2 {
@@ -3772,8 +3795,51 @@ select:focus {
 }
 
 .column__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   gap: 10px;
-  padding: 2px;
+  padding: 2px 4px 12px 2px;
+}
+
+/* Tablet override (761px - 1023px) */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+    overflow-y: auto;
+  }
+}
+
+/* Mobile override (max-width: 760px) */
+@media (max-width: 760px) {
+  .columns {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    gap: 14px !important;
+    flex: none !important;
+    padding-bottom: 16px !important;
+  }
+
+  .column {
+    height: auto !important;
+    min-height: unset !important;
+    width: 100% !important;
+  }
+
+  .column__body {
+    height: auto !important;
+    min-height: unset !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
 }
 
 /* Linear-Grade Task Cards */
@@ -3782,6 +3848,7 @@ select:focus {
   grid-template-columns: 18px 1fr;
   gap: 12px;
   align-items: start;
+  flex-shrink: 0;
   padding: 14px 15px;
   border-radius: 13px;
   border: 1px solid rgba(140, 160, 220, 0.14);
@@ -3798,6 +3865,18 @@ select:focus {
   border-color: rgba(139, 92, 246, 0.45);
   transform: translateY(-2px);
   box-shadow: 0 10px 24px -2px rgba(0, 0, 0, 0.5), 0 0 16px rgba(139, 92, 246, 0.2);
+}
+
+.task-card.is-daily {
+  border-left-color: var(--semantic-daily);
+}
+
+.task-card.is-overdue {
+  border-left-color: var(--semantic-overdue);
+}
+
+.task-card.is-due-today {
+  border-left-color: var(--semantic-deadline);
 }
 
 .task-card__title {
@@ -3833,6 +3912,80 @@ select:focus {
   font-weight: 600;
 }
 
+.task-card__due {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--board-muted);
+  font-family: var(--mono-font);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.task-card.is-daily .task-card__due {
+  background: rgba(6, 182, 212, 0.12);
+  border-color: rgba(6, 182, 212, 0.25);
+  color: #22d3ee;
+}
+
+.task-card.is-overdue .task-card__due {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.25);
+  color: var(--semantic-overdue);
+}
+
+.task-card.is-due-today .task-card__due {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: var(--semantic-deadline);
+}
+
+.task-card__priority {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.priority-high {
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  color: #fb7185;
+}
+
+.priority-medium {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  color: #38bdf8;
+}
+
+.priority-low {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+
+.task-card__streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  font-family: var(--mono-font);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
 /* Elegant Completed Card (No Strikethrough Slop) */
 .task-card.is-done {
   opacity: 0.68;
@@ -3851,13 +4004,25 @@ select:focus {
 
 /* Empty State Polish */
 .lane-empty {
-  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 16px;
   border-radius: 12px;
-  border: 1px dashed rgba(140, 160, 220, 0.12);
+  border: 1px dashed rgba(140, 160, 220, 0.14);
   background: rgba(255, 255, 255, 0.015);
   color: var(--card-dim);
   text-align: center;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  transition: all 160ms ease;
+}
+
+.lane-empty:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.03);
 }
 
 /* Preferences Detail in Sidebar */

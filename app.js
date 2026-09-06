@@ -2608,8 +2608,17 @@ function renderTodoCard(todo) {
   due.textContent = todo.daily ? "Daily" : todo.dueDate ? SHORT_DATE_FORMATTER.format(new Date(`${todo.dueDate}T00:00:00`)) : "";
   const subtaskCount = (todo.subtasks || []).length;
   const doneSubtasks = (todo.subtasks || []).filter((item) => item.done).length;
-  subtaskMeta.textContent = subtaskCount ? `${doneSubtasks}/${subtaskCount} steps` : "";
-  streak.textContent = todo.daily ? dailyMomentumLabel(todo) : "";
+  const momentum = Number(todo.streak || 0);
+  if (todo.daily && momentum > 0) {
+    const countdown = dailyResetCountdownText(todo);
+    streak.textContent = countdown && countdown !== "never resets" && countdown !== "not started"
+      ? `🔥 ${momentum}d · ${countdown}`
+      : `🔥 ${momentum}d streak`;
+    streak.title = dailyMomentumLabel(todo);
+  } else {
+    streak.textContent = "";
+    streak.title = todo.daily ? "Daily routine" : "";
+  }
   priority.textContent = todo.priority || "";
   priority.className = "task-card__priority";
   if (todo.priority) {
