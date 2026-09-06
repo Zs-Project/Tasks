@@ -37,6 +37,11 @@ PUBLIC_FILES = {
     "planner-utils.js",
     "portfolio-utils.js",
     "planboard-api-client.js",
+    "app-state.js",
+    "app-board.js",
+    "app-calendar.js",
+    "app-portfolio.js",
+    "app-composer.js",
     "app.js",
     "firebase-adapter.js",
     "config.js",
@@ -746,29 +751,10 @@ def bootstrap_payload(connection: sqlite3.Connection, user_id: str, user_row: sq
         """,
         (user_id,),
     ).fetchall()
-    weekly_projects = connection.execute(
-        """
-        SELECT * FROM weekly_projects
-        WHERE user_id = ?
-        ORDER BY created_at ASC, title ASC
-        """,
-        (user_id,),
-    ).fetchall()
-    weekly_archives = connection.execute(
-        """
-        SELECT * FROM weekly_archives
-        WHERE user_id = ?
-        ORDER BY created_at DESC
-        LIMIT 52
-        """,
-        (user_id,),
-    ).fetchall()
     return {
         "user": serialize_user(user_row),
         "notes": [serialize_note(row) for row in notes],
         "plans": [serialize_plan(row) for row in plans],
-        "weeklyProjects": [serialize_weekly_project(row) for row in weekly_projects],
-        "weeklyArchives": [serialize_weekly_archive(row) for row in weekly_archives],
         "todos": [serialize_todo(row) for row in todos],
         "portfolioItems": [serialize_portfolio_item(row) for row in portfolio_items],
     }

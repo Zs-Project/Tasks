@@ -127,7 +127,7 @@
   function deadlineTodosByDate(todos) {
     const map = new Map();
     (todos || [])
-      .filter((todo) => todo.dueDate && !todo.daily && !todo.projectTitle && !todo.projectId)
+      .filter((todo) => todo.dueDate && !todo.daily)
       .forEach((todo) => {
         const list = map.get(todo.dueDate) || [];
         list.push(todo);
@@ -149,34 +149,6 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
     const parsed = new Date(`${text}T00:00:00Z`);
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text ? text : "";
-  }
-
-  function weeklyTaskHasAssignments(todo) {
-    if (!todo) return false;
-    if ((todo.weeklyDays || []).some((day) => Boolean(validIsoDay(day)))) return true;
-    return (todo.subtasks || []).some((subtask) =>
-      (subtask.days || []).some((day) => Boolean(validIsoDay(day)))
-    );
-  }
-
-  function todoHasUnassignedWeeklyWork(todo) {
-    if (!todo || !todo.projectTitle) return false;
-    if (todo.done) return false;
-    const subtasks = Array.isArray(todo.subtasks) ? todo.subtasks : [];
-    if (subtasks.some((subtask) => !(subtask.days || []).some((day) => Boolean(validIsoDay(day))))) {
-      return true;
-    }
-    return subtasks.length === 0 && !weeklyTaskHasAssignments(todo);
-  }
-
-  function todoScheduledForWeek(todo, firstIso, lastIso) {
-    if (!todo || todo.daily) return false;
-    const assignedDays = [
-      ...(todo.weeklyDays || []),
-      ...(todo.subtasks || []).flatMap((subtask) => subtask.days || []),
-    ].map(validIsoDay).filter(Boolean);
-    if (assignedDays.some((day) => day >= firstIso && day <= lastIso)) return true;
-    return todoHasUnassignedWeeklyWork(todo);
   }
 
   function todoSubtasksComplete(todo) {
@@ -203,9 +175,6 @@
     DAILY_RESET_OPTIONS,
     DEFAULT_DAILY_RESET_AFTER_DAYS,
     normalizeDailyResetAfterDays,
-    weeklyTaskHasAssignments,
-    todoHasUnassignedWeeklyWork,
-    todoScheduledForWeek,
     todoSubtasksComplete,
   };
 

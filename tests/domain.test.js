@@ -185,12 +185,12 @@ test("calendar deadline grouping excludes daily tasks and empty dates", () => {
     { id: "b", dueDate: "2026-05-02", daily: true },
     { id: "c", dueDate: "", daily: false },
     { id: "d", dueDate: "2026-05-03", daily: false },
-    { id: "e", dueDate: "2026-05-02", daily: false, projectTitle: "Weekly Project" },
-    { id: "f", dueDate: "2026-05-02", daily: false, projectId: "weekly-1" },
+    { id: "e", dueDate: "2026-05-02", daily: false, projectTitle: "Board Project" },
+    { id: "f", dueDate: "2026-05-02", daily: false, projectId: "board-1" },
   ]);
 
   assert.deepEqual([...map.keys()], ["2026-05-02", "2026-05-03"]);
-  assert.deepEqual(map.get("2026-05-02").map((todo) => todo.id), ["a"]);
+  assert.deepEqual(map.get("2026-05-02").map((todo) => todo.id), ["a", "e", "f"]);
 });
 
 test("calendar priority counts only show actual task priorities", () => {
@@ -205,42 +205,86 @@ test("calendar priority counts only show actual task priorities", () => {
   );
 });
 
-test("weekly scheduling excludes tasks assigned only to another week", () => {
-  const futureOnly = {
-    projectTitle: "Exam prep",
-    weeklyDays: ["2026-06-30"],
-    subtasks: [{ id: "future", text: "Future work", days: ["2026-06-30"], done: false }],
-  };
-
-  assert.equal(domain.todoScheduledForWeek(futureOnly, "2026-06-22", "2026-06-28"), false);
-  assert.equal(domain.todoScheduledForWeek(futureOnly, "2026-06-29", "2026-07-05"), true);
-});
-
-test("weekly scheduling keeps genuinely unassigned project work visible", () => {
-  const unassigned = {
-    projectTitle: "Exam prep",
-    weeklyDays: [],
-    subtasks: [{ id: "open", text: "Choose a day", days: [], done: false }],
-  };
-  const emptyTask = { projectTitle: "Exam prep", weeklyDays: [], subtasks: [] };
-
-  assert.equal(domain.todoScheduledForWeek(unassigned, "2026-06-22", "2026-06-28"), true);
-  assert.equal(domain.todoScheduledForWeek(emptyTask, "2026-06-22", "2026-06-28"), true);
-});
-
-test("completed project work cleared from weekly planning stays off weekly", () => {
-  const completed = {
-    projectTitle: "Exam prep",
-    weeklyDays: [],
-    subtasks: [],
-    done: true,
-  };
-
-  assert.equal(domain.todoScheduledForWeek(completed, "2026-06-29", "2026-07-05"), false);
-});
-
 test("all subtasks complete marks the parent task complete", () => {
   assert.equal(domain.todoSubtasksComplete({ subtasks: [] }), false);
   assert.equal(domain.todoSubtasksComplete({ subtasks: [{ done: true }, { done: true }] }), true);
   assert.equal(domain.todoSubtasksComplete({ subtasks: [{ done: true }, { done: false }] }), false);
+});
+
+require("../app-state.js");
+require("../app-calendar.js");
+require("../app-portfolio.js");
+
+test("PlanboardPortfolio inferPortfolioStatus determines status from date range", () => {
+  const p = globalThis.PlanboardPortfolio;
+  assert.equal(p.inferPortfolioStatus("2026-06-01", "2026-06-30", "2026-05-01"), "planned");
+  assert.equal(p.inferPortfolioStatus("2026-04-01", "2026-04-30", "2026-05-01"), "completed");
+  assert.equal(p.inferPortfolioStatus("2026-04-01", "2026-05-30", "2026-05-01"), "active");
+});
+
+test("PlanboardPortfolio portfolioTypeLabel formats item types", () => {
+  const p = globalThis.PlanboardPortfolio;
+  assert.equal(p.portfolioTypeLabel("competition"), "Competition");
+  assert.equal(p.portfolioTypeLabel("course"), "Course");
+  assert.equal(p.portfolioTypeLabel("project"), "Project");
+});
+
+test("PlanboardCalendar calendarMonthDates generates exactly 42 days grid", () => {
+  const c = globalThis.PlanboardCalendar;
+  const dates = c.calendarMonthDates(2026, 4); // May 2026
+  assert.equal(dates.length, 42);
+  assert.equal(dates[0] instanceof Date, true);
+});
+
+test("PlanboardState createState initializes expected state structure", () => {
+  // Polyfill minimal localStorage for testing in pure Node
+  if (!globalThis.localStorage) {
+    globalThis.localStorage = {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    };
+  }
+  const s = globalThis.PlanboardState;
+  const state = s.createState();
+  assert.equal(typeof state, "object");
+  assert.equal(state.activeView, "board");
+  assert.deepEqual(state.todos, []);
+  assert.deepEqual(state.plans, []);
+  assert.deepEqual(state.portfolioItems, []);
+});
+
+require("../app-board.js");
+require("../app-composer.js");
+
+test("PlanboardBoard boardLane correctly categorizes tasks into lanes", () => {
+  const b = globalThis.PlanboardBoard;
+  assert.equal(b.boardLane({ done: true }), "done");
+  assert.equal(b.boardLane({ daily: true, done: false }), "daily");
+  assert.equal(b.boardLane({ dueDate: "2026-05-10", done: false }), "month");
+  assert.equal(b.boardLane({ lane: "today", done: false }, null, (t) => t.lane), "month");
+  assert.equal(b.boardLane({ done: false }), "ideas");
+});
+
+test("PlanboardBoard taskCompletionUnits calculates completion correctly", () => {
+  const b = globalThis.PlanboardBoard;
+  assert.deepEqual(b.taskCompletionUnits({ done: true }), { total: 1, done: 1 });
+  assert.deepEqual(b.taskCompletionUnits({ done: false }), { total: 1, done: 0 });
+  assert.deepEqual(
+    b.taskCompletionUnits({
+      subtasks: [{ done: true }, { done: false }, { done: true }],
+      done: false,
+    }),
+    { total: 3, done: 2 }
+  );
+});
+
+test("PlanboardComposer exports required UI management methods", () => {
+  const c = globalThis.PlanboardComposer;
+  assert.equal(typeof c.renderUndoToast, "function");
+  assert.equal(typeof c.syncTaskDetailChrome, "function");
+  assert.equal(typeof c.renderDetailSubtasks, "function");
+  assert.equal(typeof c.renderTaskActionSheet, "function");
+  assert.equal(typeof c.closeComposer, "function");
+  assert.equal(typeof c.setComposerTab, "function");
 });

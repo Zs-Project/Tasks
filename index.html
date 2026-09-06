@@ -25,7 +25,7 @@
       <h1>Fast, focused planning that stays in sync.</h1>
       <p class="auth-copy">
         Use the same board on Windows and iPhone with a Reminders-style layout:
-            weekly planning, daily focus, and synced data on one account.
+            focused tasks, calendar plans, portfolio tracking, and synced data on one account.
       </p>
 
       <div class="auth-switcher">
@@ -75,11 +75,7 @@
       </div>
 
       <nav class="sidebar-primary-nav" aria-label="Primary view">
-        <button id="weeklyViewButton" class="sidebar-nav-item is-active" type="button">
-          <span class="sidebar-nav-item__icon" aria-hidden="true">W</span>
-          <span class="sidebar-nav-item__copy"><strong>Weekly</strong><small>Plan the next seven days</small></span>
-        </button>
-        <button id="boardViewButton" class="sidebar-nav-item" type="button">
+        <button id="boardViewButton" class="sidebar-nav-item is-active" type="button">
           <span class="sidebar-nav-item__icon" aria-hidden="true">B</span>
           <span class="sidebar-nav-item__copy"><strong>Board</strong><small>Backlog and daily routines</small></span>
         </button>
@@ -117,30 +113,12 @@
         </details>
       </section>
 
-      <details class="sidebar-panel sidebar-panel--controls sidebar-panel--collapsed">
-        <summary class="sidebar-panel__summary">Tools</summary>
+      <details class="sidebar-panel sidebar-panel--settings sidebar-panel--collapsed">
+        <summary class="sidebar-panel__summary">Preferences</summary>
         <div class="sidebar-panel__body">
-          <div class="filter-chips filter-chips--sidebar" role="tablist" aria-label="Task filters">
-            <button id="filterAllButton" class="chip is-active" type="button">All</button>
-            <button id="filterTodayButton" class="chip" type="button">Today</button>
-            <button id="filterOverdueButton" class="chip" type="button">Overdue</button>
-            <button id="filterHighButton" class="chip" type="button">High Priority</button>
-          </div>
-
-          <label class="sort-control sort-control--sidebar">
-            <span>Sort</span>
-            <select id="sortSelect">
-              <option value="manual">Default</option>
-              <option value="due">Due Soon</option>
-              <option value="priority">Priority</option>
-              <option value="newest">Newest</option>
-            </select>
-          </label>
-
+          <button id="sidebarThemeToggle" class="toolbar-button toolbar-button--sidebar" type="button">Switch to Light Mode</button>
           <button id="notificationButton" class="toolbar-button toolbar-button--sidebar" type="button">Enable In-app Alerts</button>
           <button id="resetAllButton" class="toolbar-button toolbar-button--sidebar toolbar-button--danger" type="button">Reset all data</button>
-
-          <p id="filterStateLabel" class="board-filter-state board-filter-state--sidebar" aria-live="polite"></p>
         </div>
       </details>
 
@@ -175,105 +153,53 @@
     <main class="board">
       <header class="board-header">
         <div class="board-header__copy">
-          <h1>planner.</h1>
+          <h1 id="viewTitleHeading">Board</h1>
           <p class="board-header__meta">
-            <span id="completedMeta">0 completed</span>
+            <span id="completedMeta" class="header-badge">0 completed</span>
             <button id="clearCompletedButton" class="clear-link" type="button">Clear</button>
           </p>
         </div>
 
         <div class="board-header__tools">
           <button id="installButton" class="tool-icon" type="button" hidden aria-label="Install">&#10515;</button>
-          <button id="openComposerButton" class="toolbar-button toolbar-button--primary" type="button">+ Add</button>
-          <div class="board-total">
+          <button id="themeToggleButton" class="theme-toggle-btn" type="button" aria-label="Toggle dark/light mode" title="Toggle theme (Shift+T)">
+            <span class="theme-toggle-icon" aria-hidden="true">&#9728;</span>
+          </button>
+          <button id="openComposerButton" class="toolbar-button toolbar-button--primary" type="button">+ Add Task <kbd class="kbd-badge" title="Hotkey: C">C</kbd></button>
+          <div class="board-metric-pill">
             <strong id="allTaskCountHeader">0</strong>
-            <span id="syncStatusLabel">Visible</span>
-            <span id="syncTimeLabel">Waiting for first sync</span>
+            <div class="board-metric-pill__labels">
+              <span id="syncStatusLabel">Visible</span>
+              <span id="syncTimeLabel">Waiting for first sync</span>
+            </div>
           </div>
         </div>
       </header>
 
-      <p id="statusMessage" class="message message--inline" aria-live="polite"></p>
+      <p id="statusMessage" class="message message--inline message--toast" aria-live="polite"></p>
 
-      <section id="weeklyView" class="weekly-page board-view board-view--weekly">
-        <nav class="weekly-subnav" aria-label="Weekly pages">
-          <button id="weeklyPlannerButton" class="weekly-subnav__button is-active" type="button">Planner</button>
-          <button id="weeklyStatsButton" class="weekly-subnav__button" type="button">Stats</button>
-          <button id="weeklyArchiveButton" class="weekly-subnav__button" type="button">Archive</button>
-        </nav>
-        <div class="weekly-toolbar">
-          <div>
-            <p id="weeklyPlanningLabel" class="eyebrow">Planning for</p>
-            <h2 id="weeklyRangeLabel">This week</h2>
-            <p id="weeklyProgressLabel" class="weekly-progress-label">0 of 0 tasks complete</p>
-          </div>
-          <div class="weekly-toolbar__actions">
-            <button id="weeklyPreviousButton" class="toolbar-button" type="button">Previous</button>
-            <button id="weeklyTodayButton" class="toolbar-button" type="button">This week</button>
-            <button id="weeklyNextButton" class="toolbar-button" type="button">Next</button>
-            <button id="weeklyEndButton" class="toolbar-button toolbar-button--primary" type="button">End week</button>
-          </div>
+      <div id="boardFilterToolbar" class="board-filter-toolbar">
+        <div class="filter-chips" role="tablist" aria-label="Task filters">
+          <button id="filterAllButton" class="chip is-active" type="button">All</button>
+          <button id="filterTodayButton" class="chip" type="button">Today</button>
+          <button id="filterOverdueButton" class="chip" type="button">Overdue</button>
+          <button id="filterHighButton" class="chip" type="button">High Priority</button>
         </div>
-        <div id="weeklyProgress" class="weekly-progress" aria-hidden="true">
-          <span id="weeklyProgressBar"></span>
-        </div>
-        <div id="weeklyPlannerPage" class="weekly-planner-page">
-          <section id="weeklyTodaySummary" class="weekly-today-summary" aria-live="polite"></section>
-          <section id="weeklyProjects" class="weekly-projects">
-            <div class="weekly-backlog__heading">
-              <div>
-                <p class="eyebrow">Projects</p>
-                <h2>Work by project</h2>
-              </div>
-              <button id="weeklyAddProjectButton" class="toolbar-button" type="button">+ Add project</button>
-            </div>
-            <div id="weeklyProjectList" class="weekly-project-list"></div>
-          </section>
-          <section class="weekly-this-week">
-            <div class="weekly-this-week__heading">
-              <div>
-                <p class="eyebrow">This week</p>
-                <h2 id="weeklyFocusLabel">Focusing today</h2>
-              </div>
-              <button id="weeklyShowAllButton" class="plain-link" type="button">Show all days</button>
-            </div>
-            <div id="weeklyDays" class="weekly-days"></div>
-            <section id="weeklyBacklog" class="weekly-backlog">
-              <div class="weekly-backlog__heading">
-                <div>
-                  <p class="eyebrow">Unscheduled</p>
-                  <h2>Plan these later</h2>
-                </div>
-                <span id="weeklyBacklogCount" class="weekly-backlog__count">0</span>
-              </div>
-              <div id="weeklyBacklogList" class="weekly-backlog__list"></div>
-            </section>
-          </section>
-        </div>
-        <section id="weeklyArchivePanel" class="weekly-insight-panel" hidden>
-          <div class="weekly-backlog__heading">
-            <div>
-              <p class="eyebrow">Archive</p>
-              <h2>Archived weeks</h2>
-            </div>
-            <button id="weeklyClearArchiveButton" class="plain-link" type="button">Clear archive</button>
-          </div>
-          <div id="weeklyArchiveList" class="weekly-archive-list"></div>
-        </section>
-        <section id="weeklyStatsPanel" class="weekly-insight-panel" hidden>
-          <div class="weekly-backlog__heading">
-            <div>
-              <p class="eyebrow">Stats</p>
-              <h2>Weekly momentum</h2>
-            </div>
-          </div>
-          <div id="weeklyStatsGrid" class="weekly-stats-grid"></div>
-          <div id="weeklyDailyStats" class="weekly-daily-stats"></div>
-          <div id="weeklyWeekdayStats" class="weekly-weekday-stats"></div>
-        </section>
-      </section>
 
-      <section id="boardView" class="columns board-view board-view--board board-view--hidden">
+        <div class="board-filter-toolbar__right">
+          <label class="sort-control">
+            <span>Sort:</span>
+            <select id="sortSelect">
+              <option value="manual">Default</option>
+              <option value="due">Due Soon</option>
+              <option value="priority">Priority</option>
+              <option value="newest">Newest</option>
+            </select>
+          </label>
+          <p id="filterStateLabel" class="board-filter-state" aria-live="polite"></p>
+        </div>
+      </div>
+      <section id="boardView" class="columns board-view board-view--board">
         <article class="column" data-lane="ideas">
           <div class="column__header">
             <h2>Ideas</h2>
@@ -823,6 +749,11 @@
   <script src="planner-utils.js"></script>
   <script src="portfolio-utils.js"></script>
   <script src="planboard-api-client.js"></script>
+  <script src="app-state.js"></script>
+  <script src="app-board.js"></script>
+  <script src="app-calendar.js"></script>
+  <script src="app-portfolio.js"></script>
+  <script src="app-composer.js"></script>
   <script src="firebase-adapter.js"></script>
   <script src="app.js"></script>
 </body>
