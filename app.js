@@ -217,6 +217,13 @@ const closePortfolioDetailButton = document.querySelector("#closePortfolioDetail
 const undoToast = document.querySelector("#undoToast");
 const undoToastLabel = document.querySelector("#undoToastLabel");
 const undoToastButton = document.querySelector("#undoToastButton");
+const undoToastDismiss = document.querySelector("#undoToastDismiss");
+const undoToastProgress = document.querySelector("#undoToastProgress");
+const commandPaletteButton = document.querySelector("#commandPaletteButton");
+const commandPaletteModal = document.querySelector("#commandPaletteModal");
+const commandPaletteInput = document.querySelector("#commandPaletteInput");
+const commandPaletteResults = document.querySelector("#commandPaletteResults");
+const commandPaletteCloseKbd = document.querySelector("#commandPaletteCloseKbd");
 const mobileTabButtons = [...document.querySelectorAll(".mobile-tabbar__button")];
 
 const laneTargets = {
@@ -419,6 +426,325 @@ async function resetAllData() {
   }
 }
 
+async function saveTodoPatch(todoId, patch, statusMsg = "") {
+  const todo = state.todos.find((entry) => entry.id === todoId);
+  if (!todo) return;
+  const previous = cloneTodoDraft(todo);
+  const nextTodo = { ...todo, ...patch };
+  try {
+    updateTodo(nextTodo);
+    if (state.detailTaskId === todo.id) {
+      state.detailDraft = cloneTodoDraft(nextTodo);
+    }
+    render();
+    const payload = await api(`/todos/${todo.id}`, {
+      method: "PUT",
+      body: serializeTodoForApi(nextTodo),
+    });
+    const hydrated = hydrateTodoFromServer(payload.todo);
+    updateTodo(hydrated);
+    if (state.detailTaskId === todo.id) {
+      state.detailDraft = cloneTodoDraft(hydrated);
+      state.detailDirty = false;
+    }
+    state.lastSyncedAt = Date.now();
+    render();
+    if (statusMsg) setStatus(statusMsg);
+  } catch (error) {
+    updateTodo(previous);
+    if (state.detailTaskId === todo.id) {
+      state.detailDraft = cloneTodoDraft(previous);
+    }
+    render();
+    setStatus(error.message, true);
+  }
+}
+
+let commandPaletteItems = [];
+let commandPaletteSelectedIndex = 0;
+
+function openCommandPalette() {
+  if (!commandPaletteModal) return;
+  commandPaletteModal.classList.remove("is-hidden");
+  if (commandPaletteInput) {
+    commandPaletteInput.value = "";
+    commandPaletteInput.focus();
+  }
+  commandPaletteSelectedIndex = 0;
+  renderCommandPaletteResults("");
+}
+
+function closeCommandPalette() {
+  if (!commandPaletteModal) return;
+  commandPaletteModal.classList.add("is-hidden");
+}
+
+function toggleCommandPalette() {
+  if (!commandPaletteModal) return;
+  if (commandPaletteModal.classList.contains("is-hidden")) {
+    openCommandPalette();
+  } else {
+    closeCommandPalette();
+  }
+}
+
+function renderCommandPaletteResults(rawQuery = "") {
+  if (!commandPaletteResults) return;
+  const query = String(rawQuery || "").trim().toLowerCase();
+  commandPaletteItems = [];
+  commandPaletteResults.innerHTML = "";
+
+  const navCommands = [
+    {
+      type: "nav",
+      icon: "⊞",
+      title: "Chuyển sang Planner Board",
+      subtitle: "Bảng Kanban ý tưởng, tháng, thói quen & hoàn thành",
+      badge: "View",
+      keywords: "board planner kanban tasks",
+      action: () => setActiveView("board"),
+    },
+    {
+      type: "nav",
+      icon: "📅",
+      title: "Chuyển sang Calendar View",
+      subtitle: "Xem lịch theo tháng và tiến độ deadline từng ngày",
+      badge: "View",
+      keywords: "calendar month date lich ngay thang",
+      action: () => setActiveView("calendar"),
+    },
+    {
+      type: "nav",
+      icon: "📂",
+      title: "Chuyển sang Portfolio Projects",
+      subtitle: "Hồ sơ dự án, cuộc thi và khóa học",
+      badge: "View",
+      keywords: "portfolio projects du an ho so",
+      action: () => setActiveView("portfolio"),
+    },
+    {
+      type: "nav",
+      icon: "❖",
+      title: "Chuyển sang Priority Matrix",
+      subtitle: "Ma trận ưu tiên Eisenhower 4 góc phần tư",
+      badge: "View",
+      keywords: "matrix priority eisenhower uutien matran",
+      action: () => setActiveView("matrix"),
+    },
+  ];
+
+  const actionCommands = [
+    {
+      type: "action",
+      icon: "+",
+      title: "Tạo nhiệm vụ mới (New Task)",
+      subtitle: "Thêm task vào Ideas hoặc Today",
+      badge: "Action",
+      keywords: "new task create add tao moi nhiemvu",
+      action: () => openComposer("task", { locked: true }),
+    },
+    {
+      type: "action",
+      icon: "+",
+      title: "Tạo dự án mới (New Project)",
+      subtitle: "Thêm dự án vào Portfolio",
+      badge: "Action",
+      keywords: "new project add portfolio tao duan",
+      action: () => openComposer("portfolio", { locked: true }),
+    },
+    {
+      type: "action",
+      icon: "🌓",
+      title: "Đổi giao diện Sáng / Tối (Toggle Theme)",
+      subtitle: "Chuyển đổi tức thì Dark Mode và Light Mode",
+      badge: "Theme",
+      keywords: "theme dark light giao dien sang toi mau",
+      action: () => toggleTheme(),
+    },
+    {
+      type: "action",
+      icon: "✓",
+      title: "Dọn dẹp các nhiệm vụ đã hoàn thành (Clear Done)",
+      subtitle: "Xóa sạch các task trong cột Done (có thể hoàn tác)",
+      badge: "Action",
+      keywords: "clear completed done dondep xoa hoanthanh",
+      action: () => clearCompletedTasks(),
+    },
+    {
+      type: "action",
+      icon: "🔍",
+      title: "Đặt lại mức zoom (Reset Zoom 100%)",
+      subtitle: "Khôi phục tỷ lệ xem mặc định",
+      badge: "Zoom",
+      keywords: "zoom reset 100 default",
+      action: () => resetZoom(),
+    },
+  ];
+
+  const filteredNav = navCommands.filter((cmd) => {
+    if (!query) return true;
+    return cmd.title.toLowerCase().includes(query) || cmd.keywords.toLowerCase().includes(query);
+  });
+
+  const filteredActions = actionCommands.filter((cmd) => {
+    if (!query) return true;
+    return cmd.title.toLowerCase().includes(query) || cmd.keywords.toLowerCase().includes(query);
+  });
+
+  let filteredTasks = [];
+  if (state.todos && state.todos.length) {
+    filteredTasks = state.todos.filter((todo) => {
+      if (!query) return false;
+      const titleMatch = (todo.title || "").toLowerCase().includes(query);
+      const detailsMatch = (todo.details || "").toLowerCase().includes(query);
+      const projectMatch = (todo.projectTitle || "").toLowerCase().includes(query);
+      const laneMatch = (todo.lane || "").toLowerCase().includes(query);
+      return titleMatch || detailsMatch || projectMatch || laneMatch;
+    }).slice(0, 15);
+  }
+
+  if (!query && state.todos && state.todos.length) {
+    filteredTasks = state.todos
+      .filter((t) => !isTodoEffectivelyDone(t))
+      .slice(0, 6);
+  }
+
+  const fragment = document.createDocumentFragment();
+
+  function appendGroup(title, items) {
+    if (!items.length) return;
+    const groupHeading = document.createElement("div");
+    groupHeading.className = "command-palette-group-title";
+    groupHeading.textContent = title;
+    fragment.appendChild(groupHeading);
+
+    items.forEach((item) => {
+      const itemIndex = commandPaletteItems.length;
+      commandPaletteItems.push(item);
+
+      const el = document.createElement("div");
+      el.className = "command-palette-item";
+      el.dataset.index = itemIndex;
+      if (itemIndex === commandPaletteSelectedIndex) {
+        el.classList.add("is-active");
+      }
+
+      el.innerHTML = `
+        <div class="command-palette-item__left">
+          <span class="command-palette-item__icon">${item.icon}</span>
+          <div class="command-palette-item__text">
+            <div class="command-palette-item__title">${escapeHtml(item.title)}</div>
+            ${item.subtitle ? `<div class="command-palette-item__subtitle">${escapeHtml(item.subtitle)}</div>` : ""}
+          </div>
+        </div>
+        ${item.badge ? `<span class="command-palette-item__badge">${escapeHtml(item.badge)}</span>` : ""}
+      `;
+
+      el.addEventListener("mouseenter", () => {
+        setCommandPaletteSelectedIndex(itemIndex);
+      });
+
+      el.addEventListener("click", () => {
+        executeCommandPaletteSelection(itemIndex);
+      });
+
+      fragment.appendChild(el);
+    });
+  }
+
+  if (filteredNav.length) {
+    appendGroup("Điều hướng (Navigation)", filteredNav);
+  }
+
+  if (filteredActions.length) {
+    appendGroup("Hành động (Quick Actions)", filteredActions);
+  }
+
+  if (filteredTasks.length) {
+    const taskItems = filteredTasks.map((todo) => {
+      const done = isTodoEffectivelyDone(todo);
+      const isDaily = Boolean(todo.daily);
+      const icon = isDaily ? "🔥" : done ? "✓" : "○";
+      const laneName = todo.daily ? "Daily" : laneLabel(todo.lane);
+      const metaParts = [];
+      if (todo.dueDate) metaParts.push(`Hạn: ${todo.dueDate}`);
+      if (todo.projectTitle) metaParts.push(todo.projectTitle);
+      metaParts.push(laneName);
+
+      return {
+        type: "task",
+        icon,
+        title: todo.title,
+        subtitle: metaParts.join(" • "),
+        badge: todo.priority ? todo.priority.toUpperCase() : (done ? "DONE" : "TASK"),
+        action: () => {
+          if (state.activeView !== "board") {
+            setActiveView("board");
+          }
+          openTaskDetail(todo.id);
+          window.setTimeout(() => {
+            const card = document.querySelector(`.task-card[data-id="${todo.id}"]`);
+            if (card) {
+              card.scrollIntoView({ behavior: "smooth", block: "center" });
+              card.classList.add("is-spotlight");
+              window.setTimeout(() => card.classList.remove("is-spotlight"), 2000);
+            }
+          }, 80);
+        },
+      };
+    });
+    appendGroup(query ? "Nhiệm vụ tìm thấy (Tasks)" : "Nhiệm vụ gần đây (Recent Tasks)", taskItems);
+  }
+
+  if (!commandPaletteItems.length) {
+    const empty = document.createElement("div");
+    empty.className = "command-palette-empty";
+    empty.textContent = `Không tìm thấy kết quả cho "${rawQuery}".`;
+    fragment.appendChild(empty);
+  }
+
+  commandPaletteResults.appendChild(fragment);
+
+  if (commandPaletteSelectedIndex >= commandPaletteItems.length) {
+    commandPaletteSelectedIndex = 0;
+  }
+  updateCommandPaletteItemHighlight();
+}
+
+function setCommandPaletteSelectedIndex(index) {
+  commandPaletteSelectedIndex = Math.max(0, Math.min(index, commandPaletteItems.length - 1));
+  updateCommandPaletteItemHighlight();
+}
+
+function updateCommandPaletteItemHighlight() {
+  if (!commandPaletteResults) return;
+  const itemEls = commandPaletteResults.querySelectorAll(".command-palette-item");
+  itemEls.forEach((el, idx) => {
+    const isSel = idx === commandPaletteSelectedIndex;
+    el.classList.toggle("is-active", isSel);
+    if (isSel) {
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
+}
+
+function navigateCommandPalette(direction) {
+  if (!commandPaletteItems.length) return;
+  commandPaletteSelectedIndex = (commandPaletteSelectedIndex + direction + commandPaletteItems.length) % commandPaletteItems.length;
+  updateCommandPaletteItemHighlight();
+}
+
+function executeCommandPaletteSelection(targetIndex = -1) {
+  const index = targetIndex >= 0 ? targetIndex : commandPaletteSelectedIndex;
+  if (index >= 0 && index < commandPaletteItems.length) {
+    const item = commandPaletteItems[index];
+    closeCommandPalette();
+    if (typeof item.action === "function") {
+      item.action();
+    }
+  }
+}
+
 function bindEvents() {
   document.querySelector("#showLoginButton").addEventListener("click", () => setAuthMode("login"));
   document.querySelector("#showRegisterButton").addEventListener("click", () => setAuthMode("register"));
@@ -528,7 +854,40 @@ function bindEvents() {
     const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
     const isEditing = activeTag === "input" || activeTag === "textarea" || activeTag === "select" || (document.activeElement && document.activeElement.isContentEditable);
 
+    if ((event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "K") && !event.altKey) {
+      event.preventDefault();
+      toggleCommandPalette();
+      return;
+    }
+
+    if (commandPaletteModal && !commandPaletteModal.classList.contains("is-hidden")) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeCommandPalette();
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        navigateCommandPalette(1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        navigateCommandPalette(-1);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        executeCommandPaletteSelection();
+        return;
+      }
+    }
+
     if (event.key === "Escape") {
+      if (commandPaletteModal && !commandPaletteModal.classList.contains("is-hidden")) {
+        closeCommandPalette();
+        return;
+      }
       if (taskDetailOverlay && !taskDetailOverlay.classList.contains("task-detail-overlay--hidden")) {
         closeTaskDetail();
         return;
@@ -1091,6 +1450,33 @@ function bindEvents() {
   undoToastButton.addEventListener("click", () => {
     undoLastAction();
   });
+  if (undoToastDismiss) {
+    undoToastDismiss.addEventListener("click", () => {
+      finalizePendingUndo(false);
+    });
+  }
+  if (commandPaletteButton) {
+    commandPaletteButton.addEventListener("click", () => {
+      openCommandPalette();
+    });
+  }
+  if (commandPaletteCloseKbd) {
+    commandPaletteCloseKbd.addEventListener("click", () => {
+      closeCommandPalette();
+    });
+  }
+  if (commandPaletteModal) {
+    commandPaletteModal.addEventListener("click", (event) => {
+      if (event.target === commandPaletteModal || event.target.classList.contains("command-palette-backdrop")) {
+        closeCommandPalette();
+      }
+    });
+  }
+  if (commandPaletteInput) {
+    commandPaletteInput.addEventListener("input", () => {
+      renderCommandPaletteResults(commandPaletteInput.value.trim());
+    });
+  }
 }
 
 function setAuthMode(mode) {
@@ -1527,16 +1913,22 @@ function renderDetailSubtasks(subtasks) {
 
 function renderUndoToast() {
   if (PLANBOARD_COMPOSER.renderUndoToast) {
-    PLANBOARD_COMPOSER.renderUndoToast({ state, dom: { undoToast, undoToastLabel } });
+    PLANBOARD_COMPOSER.renderUndoToast({ state, dom: { undoToast, undoToastLabel, undoToastProgress } });
     return;
   }
   const isOpen = Boolean(state.undoAction);
   undoToast.classList.toggle("undo-toast--hidden", !isOpen);
   if (!isOpen) {
     undoToastLabel.textContent = "";
+    if (undoToastProgress) undoToastProgress.classList.remove("is-running");
     return;
   }
   undoToastLabel.textContent = state.undoAction.label;
+  if (undoToastProgress) {
+    undoToastProgress.classList.remove("is-running");
+    void undoToastProgress.offsetWidth;
+    undoToastProgress.classList.add("is-running");
+  }
 }
 
 function renderTaskActionSheet() {
@@ -2623,6 +3015,45 @@ function renderTodoCard(todo) {
   priority.className = "task-card__priority";
   if (todo.priority) {
     priority.classList.add(`priority-${todo.priority}`);
+  }
+
+  const quickTodayBtn = fragment.querySelector(".task-card__quick-btn--today");
+  const quickEditBtn = fragment.querySelector(".task-card__quick-btn--edit");
+  const quickDeleteBtn = fragment.querySelector(".task-card__quick-btn--delete");
+
+  if (quickTodayBtn) {
+    if (todo.daily) {
+      quickTodayBtn.style.display = "none";
+    } else {
+      const isDueToday = todo.dueDate === todayIso();
+      quickTodayBtn.title = isDueToday ? "Bỏ deadline hôm nay" : "Đặt deadline hôm nay";
+      quickTodayBtn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        const nextDue = isDueToday ? "" : todayIso();
+        await saveTodoPatch(
+          todo.id,
+          { dueDate: nextDue },
+          nextDue ? `Đã đặt deadline: Hôm nay (${todo.title})` : `Đã bỏ deadline (${todo.title})`
+        );
+      });
+    }
+  }
+
+  if (quickEditBtn) {
+    quickEditBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      openTaskDetail(todo.id);
+    });
+  }
+
+  if (quickDeleteBtn) {
+    quickDeleteBtn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      await deleteTodo(todo.id);
+    });
   }
 
   card.addEventListener("dragstart", (event) => {
@@ -3758,7 +4189,7 @@ async function toggleTodoDone(todoId, nextDone) {
     state.lastSyncedAt = Date.now();
     render();
     setUndoAction({
-      label: nextDone ? "Task marked done" : "Task marked active",
+      label: nextDone ? `Đã hoàn thành "${todo.title || 'Task'}"` : `Đã mở lại "${todo.title || 'Task'}"`,
       rollback: async () => {
         const revertPayload = await api(`/todos/${todo.id}`, {
           method: "PUT",
@@ -3771,7 +4202,7 @@ async function toggleTodoDone(todoId, nextDone) {
         }
         state.lastSyncedAt = Date.now();
         render();
-        setStatus("Change undone.");
+        setStatus("Đã hoàn tác trạng thái task.");
       },
       commit: async () => Promise.resolve(),
     });
@@ -3800,11 +4231,11 @@ async function deleteTodo(todoId) {
     }
     render();
     setUndoAction({
-      label: "Task deleted",
+      label: `Đã xoá "${todo.title || 'Task'}"`,
       rollback: () => {
         state.todos = previousTodos;
         render();
-        setStatus("Delete undone.");
+        setStatus("Đã hoàn tác xoá task.");
       },
       commit: async () => {
         await api(`/todos/${todoId}`, { method: "DELETE" });

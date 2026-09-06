@@ -13,7 +13,8 @@
     "desktop:dev": "npm run prepare:web && electron electron/main.js",
     "desktop:pack": "npm run prepare:web && electron-builder --win portable nsis",
     "mobile:copy": "npm run prepare:web && cap copy",
-    "mobile:ios": "npm run prepare:web && cap sync ios"
+    "mobile:ios": "npm run prepare:web && cap sync ios",
+    "deploy:rules": "firebase deploy --only firestore:rules"
   },
   "dependencies": {
     "@capacitor/core": "^8.3.0"

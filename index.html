@@ -170,6 +170,14 @@
 
         <div class="board-header__tools">
           <button id="installButton" class="tool-icon" type="button" hidden aria-label="Install">&#10515;</button>
+          <button id="commandPaletteButton" class="command-palette-trigger" type="button" aria-label="Command Palette" title="Command Palette (Ctrl + K)">
+            <svg class="command-palette-trigger__icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span class="command-palette-trigger__label">Search / Actions</span>
+            <kbd class="command-palette-trigger__kbd">Ctrl K</kbd>
+          </button>
           <div class="zoom-stepper" role="group" aria-label="Page zoom scale">
             <button id="zoomOutButton" class="zoom-stepper__btn" type="button" aria-label="Zoom out" title="Zoom out (Ctrl + -)">−</button>
             <button id="zoomResetButton" class="zoom-stepper__label" type="button" aria-label="Reset zoom" title="Reset zoom (Ctrl + 0)">100%</button>
@@ -510,8 +518,19 @@
   </div>
 
   <div id="undoToast" class="undo-toast undo-toast--hidden" aria-live="polite">
-    <span id="undoToastLabel">Action completed</span>
-    <button id="undoToastButton" class="plain-link" type="button">Undo</button>
+    <div class="undo-toast__body">
+      <div class="undo-toast__content">
+        <span class="undo-toast__icon" aria-hidden="true">&#8635;</span>
+        <span id="undoToastLabel" class="undo-toast__label">Hành động đã hoàn thành</span>
+      </div>
+      <div class="undo-toast__actions">
+        <button id="undoToastButton" class="undo-toast__btn" type="button">Hoàn tác</button>
+        <button id="undoToastDismiss" class="undo-toast__close" type="button" aria-label="Đóng">&times;</button>
+      </div>
+    </div>
+    <div class="undo-toast__progress-track">
+      <div id="undoToastProgress" class="undo-toast__progress"></div>
+    </div>
   </div>
 
   <div id="composerOverlay" class="composer-overlay composer-overlay--hidden">
@@ -706,6 +725,31 @@
     </div>
   </div>
 
+  <div id="commandPaletteModal" class="command-palette-overlay is-hidden" role="dialog" aria-modal="true" aria-label="Command Palette">
+    <div class="command-palette-backdrop"></div>
+    <div class="command-palette-card">
+      <div class="command-palette-search">
+        <svg class="command-palette-search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input id="commandPaletteInput" class="command-palette-input" type="text" placeholder="Tìm kiếm task hoặc gõ lệnh... (e.g. 'calendar', 'dark', 'task')" autocomplete="off" spellcheck="false" />
+        <kbd class="command-palette-kbd" id="commandPaletteCloseKbd" title="Đóng (ESC)">ESC</kbd>
+      </div>
+      <div id="commandPaletteResults" class="command-palette-results" role="listbox">
+        <!-- Dynamically rendered items -->
+      </div>
+      <div class="command-palette-footer">
+        <div class="command-palette-footer-shortcuts">
+          <span><kbd class="command-palette-mini-kbd">↑</kbd><kbd class="command-palette-mini-kbd">↓</kbd> Di chuyển</span>
+          <span><kbd class="command-palette-mini-kbd">↵</kbd> Chọn</span>
+          <span><kbd class="command-palette-mini-kbd">ESC</kbd> Thoát</span>
+        </div>
+        <div class="command-palette-footer-brand">Linear Craft</div>
+      </div>
+    </div>
+  </div>
+
   <template id="todoCardTemplate">
     <article class="task-card" draggable="true">
       <label class="task-card__check">
@@ -721,6 +765,26 @@
           <span class="task-card__subtasks"></span>
           <span class="task-card__streak"></span>
         </div>
+      </div>
+      <div class="task-card__quick-actions" role="toolbar" aria-label="Thao tác nhanh">
+        <button class="task-card__quick-btn task-card__quick-btn--today" type="button" title="Đặt deadline hôm nay (Due Today)" aria-label="Đặt deadline hôm nay">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </button>
+        <button class="task-card__quick-btn task-card__quick-btn--edit" type="button" title="Mở chi tiết (Edit details)" aria-label="Mở chi tiết">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+          </svg>
+        </button>
+        <button class="task-card__quick-btn task-card__quick-btn--delete" type="button" title="Xoá task (Có thể hoàn tác)" aria-label="Xoá task">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
       </div>
     </article>
   </template>

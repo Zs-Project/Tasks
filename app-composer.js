@@ -5,9 +5,15 @@
     dom.undoToast.classList.toggle("undo-toast--hidden", !isOpen);
     if (!isOpen) {
       if (dom.undoToastLabel) dom.undoToastLabel.textContent = "";
+      if (dom.undoToastProgress) dom.undoToastProgress.classList.remove("is-running");
       return;
     }
     if (dom.undoToastLabel) dom.undoToastLabel.textContent = state.undoAction.label;
+    if (dom.undoToastProgress) {
+      dom.undoToastProgress.classList.remove("is-running");
+      void dom.undoToastProgress.offsetWidth;
+      dom.undoToastProgress.classList.add("is-running");
+    }
   }
 
   function syncTaskDetailChrome({ draft, state, dom }) {
