@@ -116,6 +116,14 @@
       <details class="sidebar-panel sidebar-panel--settings sidebar-panel--collapsed">
         <summary class="sidebar-panel__summary">Preferences</summary>
         <div class="sidebar-panel__body">
+          <div class="preferences-row">
+            <span class="preferences-label">Zoom scale</span>
+            <div class="zoom-stepper zoom-stepper--sidebar" role="group" aria-label="Sidebar zoom scale">
+              <button id="sidebarZoomOutButton" class="zoom-stepper__btn" type="button" aria-label="Zoom out">−</button>
+              <button id="sidebarZoomResetButton" class="zoom-stepper__label" type="button" aria-label="Reset zoom">100%</button>
+              <button id="sidebarZoomInButton" class="zoom-stepper__btn" type="button" aria-label="Zoom in">+</button>
+            </div>
+          </div>
           <button id="sidebarThemeToggle" class="toolbar-button toolbar-button--sidebar" type="button">Switch to Light Mode</button>
           <button id="notificationButton" class="toolbar-button toolbar-button--sidebar" type="button">Enable In-app Alerts</button>
           <button id="resetAllButton" class="toolbar-button toolbar-button--sidebar toolbar-button--danger" type="button">Reset all data</button>
@@ -162,6 +170,11 @@
 
         <div class="board-header__tools">
           <button id="installButton" class="tool-icon" type="button" hidden aria-label="Install">&#10515;</button>
+          <div class="zoom-stepper" role="group" aria-label="Page zoom scale">
+            <button id="zoomOutButton" class="zoom-stepper__btn" type="button" aria-label="Zoom out" title="Zoom out (Ctrl + -)">−</button>
+            <button id="zoomResetButton" class="zoom-stepper__label" type="button" aria-label="Reset zoom" title="Reset zoom (Ctrl + 0)">100%</button>
+            <button id="zoomInButton" class="zoom-stepper__btn" type="button" aria-label="Zoom in" title="Zoom in (Ctrl + +)">+</button>
+          </div>
           <button id="themeToggleButton" class="theme-toggle-btn" type="button" aria-label="Toggle dark/light mode" title="Toggle theme (Shift+T)">
             <span class="theme-toggle-icon" aria-hidden="true">&#9728;</span>
           </button>

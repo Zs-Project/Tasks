@@ -5,6 +5,8 @@
   const DEFAULT_THEME_KEY = "planboard-default-theme";
   const DEFAULT_THEME = "aurora";
   const THEMES = ["aurora", "light"];
+  const UI_SCALE_KEY = "planboard-ui-scale";
+  const DEFAULT_UI_SCALE = 1.0;
 
   function todayIso() {
     const utils = root.PlannerUtils;
@@ -28,6 +30,7 @@
       mobileView: "daily",
       sortMode: "manual",
       theme: localStorage.getItem(DEFAULT_THEME_KEY) || DEFAULT_THEME,
+      uiScale: parseFloat(localStorage.getItem(UI_SCALE_KEY)) || DEFAULT_UI_SCALE,
       sidebarCollapsed: false,
     };
     try {
@@ -54,6 +57,7 @@
         sidebarCollapsed: Boolean(parsed && parsed.sidebarCollapsed),
         selectedDate: normalizeIsoDateInput(parsed && parsed.selectedDate) || defaults.selectedDate,
         theme: THEMES.includes(defaults.theme) ? defaults.theme : DEFAULT_THEME,
+        uiScale: Number.isFinite(parsed && parsed.uiScale) ? parsed.uiScale : defaults.uiScale,
       };
     } catch {
       return defaults;
@@ -75,6 +79,7 @@
         mobileView: state.mobileView,
         sortMode: state.sortMode,
         theme: state.theme,
+        uiScale: state.uiScale,
         sidebarCollapsed: state.sidebarCollapsed,
       })
     );
@@ -109,6 +114,7 @@
       mobileView: initialUi.mobileView,
       sortMode: initialUi.sortMode,
       theme: initialUi.theme,
+      uiScale: initialUi.uiScale,
       sidebarCollapsed: initialUi.sidebarCollapsed,
       notesByDate: {},
       plans: [],
@@ -137,6 +143,8 @@
     DEFAULT_THEME_KEY,
     DEFAULT_THEME,
     THEMES,
+    UI_SCALE_KEY,
+    DEFAULT_UI_SCALE,
     loadUiState,
     saveUiState,
     loadNotifiedState,

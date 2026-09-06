@@ -35,6 +35,9 @@ const NOTIFICATION_KEY = PLANBOARD_STATE.NOTIFICATION_KEY || "planboard-notified
 const DEFAULT_THEME_KEY = PLANBOARD_STATE.DEFAULT_THEME_KEY || "planboard-default-theme";
 const DEFAULT_THEME = PLANBOARD_STATE.DEFAULT_THEME || "aurora";
 const THEMES = PLANBOARD_STATE.THEMES || [DEFAULT_THEME, "light"];
+const UI_SCALE_KEY = PLANBOARD_STATE.UI_SCALE_KEY || "planboard-ui-scale";
+const DEFAULT_UI_SCALE = PLANBOARD_STATE.DEFAULT_UI_SCALE || 1.0;
+const ZOOM_LEVELS = [0.85, 0.9, 1.0, 1.1, 1.2];
 const DEFAULT_DAILY_RESET_AFTER_DAYS = PLANBOARD_DOMAIN.DEFAULT_DAILY_RESET_AFTER_DAYS || 7;
 const DAILY_RESET_OPTIONS = PLANBOARD_DOMAIN.DAILY_RESET_OPTIONS || [1, 3, 7, 14, 30, 0];
 const LANES = PLANBOARD_DOMAIN.LANES || ["ideas", "month", "week", "today", "done"];
@@ -157,6 +160,12 @@ const sortSelect = document.querySelector("#sortSelect");
 const resetAllButton = document.querySelector("#resetAllButton");
 const themeToggleButton = document.querySelector("#themeToggleButton");
 const sidebarThemeToggle = document.querySelector("#sidebarThemeToggle");
+const zoomOutButton = document.querySelector("#zoomOutButton");
+const zoomResetButton = document.querySelector("#zoomResetButton");
+const zoomInButton = document.querySelector("#zoomInButton");
+const sidebarZoomOutButton = document.querySelector("#sidebarZoomOutButton");
+const sidebarZoomResetButton = document.querySelector("#sidebarZoomResetButton");
+const sidebarZoomInButton = document.querySelector("#sidebarZoomInButton");
 const themeColorMeta = document.querySelector('meta[name="theme-color"]');
 const taskDetailPanel = document.querySelector("#taskDetailPanel");
 const taskDetailOverlay = document.querySelector("#taskDetailOverlay");
@@ -277,6 +286,7 @@ const state = PLANBOARD_STATE.createState
 
 bindEvents();
 applyTheme();
+applyUiScale();
 hydrateSession();
 registerServiceWorker();
 
@@ -295,6 +305,7 @@ function loadUiState() {
     mobileView: "daily",
     sortMode: "manual",
     theme: localStorage.getItem(DEFAULT_THEME_KEY) || DEFAULT_THEME,
+    uiScale: parseFloat(localStorage.getItem(UI_SCALE_KEY)) || DEFAULT_UI_SCALE,
     sidebarCollapsed: false,
   };
   try {
@@ -321,6 +332,7 @@ function loadUiState() {
       sidebarCollapsed: Boolean(parsed && parsed.sidebarCollapsed),
       selectedDate: normalizeIsoDateInput(parsed && parsed.selectedDate) || defaults.selectedDate,
       theme: THEMES.includes(defaults.theme) ? defaults.theme : DEFAULT_THEME,
+      uiScale: Number.isFinite(parsed && parsed.uiScale) ? parsed.uiScale : defaults.uiScale,
     };
   } catch {
     return defaults;
@@ -345,6 +357,7 @@ function saveUiState() {
       mobileView: state.mobileView,
       sortMode: state.sortMode,
       theme: state.theme,
+      uiScale: state.uiScale,
       sidebarCollapsed: state.sidebarCollapsed,
     })
   );
@@ -504,6 +517,12 @@ function bindEvents() {
   resetAllButton?.addEventListener("click", resetAllData);
   themeToggleButton?.addEventListener("click", toggleTheme);
   sidebarThemeToggle?.addEventListener("click", toggleTheme);
+  zoomOutButton?.addEventListener("click", zoomOut);
+  zoomResetButton?.addEventListener("click", resetZoom);
+  zoomInButton?.addEventListener("click", zoomIn);
+  sidebarZoomOutButton?.addEventListener("click", zoomOut);
+  sidebarZoomResetButton?.addEventListener("click", resetZoom);
+  sidebarZoomInButton?.addEventListener("click", zoomIn);
 
   document.addEventListener("keydown", (event) => {
     const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
@@ -520,6 +539,24 @@ function bindEvents() {
       }
       if (composerOverlay && !composerOverlay.classList.contains("composer-overlay--hidden")) {
         closeComposer();
+        return;
+      }
+    }
+
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      if (event.key === "-" || event.key === "_" || event.key === "[") {
+        event.preventDefault();
+        zoomOut();
+        return;
+      }
+      if (event.key === "=" || event.key === "+" || event.key === "]") {
+        event.preventDefault();
+        zoomIn();
+        return;
+      }
+      if (event.key === "0") {
+        event.preventDefault();
+        resetZoom();
         return;
       }
     }
@@ -1604,6 +1641,72 @@ function toggleTheme() {
   const currentTheme = (state && state.theme) || document.documentElement.dataset.theme || "aurora";
   const nextTheme = currentTheme === "light" ? "aurora" : "light";
   applyTheme(nextTheme);
+  saveUiState();
+}
+
+function updateZoomLabels(scale) {
+  const percentText = `${Math.round(scale * 100)}%`;
+  if (zoomResetButton) {
+    zoomResetButton.textContent = percentText;
+    zoomResetButton.setAttribute("aria-label", `Reset zoom to 100% (currently ${percentText})`);
+    zoomResetButton.setAttribute("title", `Reset zoom to 100% (Ctrl + 0) — Current: ${percentText}`);
+  }
+  if (sidebarZoomResetButton) {
+    sidebarZoomResetButton.textContent = percentText;
+    sidebarZoomResetButton.setAttribute("aria-label", `Reset zoom to 100% (currently ${percentText})`);
+  }
+  const isMin = scale <= ZOOM_LEVELS[0] + 0.005;
+  const isMax = scale >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1] - 0.005;
+  if (zoomOutButton) {
+    zoomOutButton.disabled = isMin;
+  }
+  if (sidebarZoomOutButton) {
+    sidebarZoomOutButton.disabled = isMin;
+  }
+  if (zoomInButton) {
+    zoomInButton.disabled = isMax;
+  }
+  if (sidebarZoomInButton) {
+    sidebarZoomInButton.disabled = isMax;
+  }
+}
+
+function applyUiScale(targetScale) {
+  const current = Number.isFinite(targetScale)
+    ? targetScale
+    : (state && Number.isFinite(state.uiScale))
+      ? state.uiScale
+      : parseFloat(localStorage.getItem(UI_SCALE_KEY)) || DEFAULT_UI_SCALE;
+  const clamped = Math.min(Math.max(current, ZOOM_LEVELS[0]), ZOOM_LEVELS[ZOOM_LEVELS.length - 1]);
+  const scale = Math.round(clamped * 100) / 100;
+  if (state) {
+    state.uiScale = scale;
+  }
+  localStorage.setItem(UI_SCALE_KEY, String(scale));
+  document.documentElement.style.setProperty("--ui-scale", String(scale));
+  updateZoomLabels(scale);
+}
+
+function zoomIn() {
+  const current = (state && Number.isFinite(state.uiScale)) ? state.uiScale : DEFAULT_UI_SCALE;
+  const next = ZOOM_LEVELS.find((lvl) => lvl > current + 0.01);
+  if (next !== undefined) {
+    applyUiScale(next);
+    saveUiState();
+  }
+}
+
+function zoomOut() {
+  const current = (state && Number.isFinite(state.uiScale)) ? state.uiScale : DEFAULT_UI_SCALE;
+  const prev = [...ZOOM_LEVELS].reverse().find((lvl) => lvl < current - 0.01);
+  if (prev !== undefined) {
+    applyUiScale(prev);
+    saveUiState();
+  }
+}
+
+function resetZoom() {
+  applyUiScale(DEFAULT_UI_SCALE);
   saveUiState();
 }
 

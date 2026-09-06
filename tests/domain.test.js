@@ -252,6 +252,9 @@ test("PlanboardState createState initializes expected state structure", () => {
   assert.deepEqual(state.todos, []);
   assert.deepEqual(state.plans, []);
   assert.deepEqual(state.portfolioItems, []);
+  assert.equal(state.uiScale, 1.0);
+  assert.equal(s.UI_SCALE_KEY, "planboard-ui-scale");
+  assert.equal(s.DEFAULT_UI_SCALE, 1.0);
 });
 
 require("../app-board.js");
